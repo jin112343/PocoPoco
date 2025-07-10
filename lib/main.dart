@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
-import 'screens/crochet_counter_screen.dart';
+import 'screens/home_screen.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // SharedPreferencesの初期化
+  try {
+    await SharedPreferences.getInstance();
+    print('SharedPreferences初期化完了');
+  } catch (e) {
+    print('SharedPreferences初期化エラー: $e');
+  }
+
   await MobileAds.instance.initialize();
   runApp(const CrochetCounterApp());
 }
@@ -23,7 +33,7 @@ class CrochetCounterApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
       ),
-      home: const CrochetCounterScreen(),
+      home: const HomeScreen(),
       debugShowCheckedModeBanner: false,
     );
   }

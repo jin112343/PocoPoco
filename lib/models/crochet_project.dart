@@ -1,0 +1,122 @@
+import '../models/crochet_stitch.dart';
+
+class CrochetProject {
+  final String id;
+  final String title;
+  final DateTime createdAt;
+  final DateTime? updatedAt;
+  final List<Map<String, dynamic>> stitchHistory;
+  final int currentRow;
+  final int currentStitchCount;
+  final String iconName;
+  final String iconColor;
+  final String backgroundColor;
+
+  CrochetProject({
+    required this.id,
+    required this.title,
+    required this.createdAt,
+    this.updatedAt,
+    required this.stitchHistory,
+    required this.currentRow,
+    required this.currentStitchCount,
+    this.iconName = 'work',
+    this.iconColor = '0xFF000000',
+    this.backgroundColor = '0xFFFFFFFF',
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'createdAt': createdAt.toIso8601String(),
+      'updatedAt': updatedAt?.toIso8601String(),
+      'stitchHistory': stitchHistory.map((stitch) {
+        final stitchData = Map<String, dynamic>.from(stitch);
+        // CrochetStitchオブジェクトを文字列に変換
+        if (stitchData['stitch'] is CrochetStitch) {
+          stitchData['stitch'] = (stitchData['stitch'] as CrochetStitch).name;
+        }
+        // DateTimeオブジェクトを文字列に変換
+        if (stitchData['timestamp'] is DateTime) {
+          stitchData['timestamp'] =
+              (stitchData['timestamp'] as DateTime).toIso8601String();
+        }
+        return stitchData;
+      }).toList(),
+      'currentRow': currentRow,
+      'currentStitchCount': currentStitchCount,
+      'iconName': iconName,
+      'iconColor': iconColor,
+      'backgroundColor': backgroundColor,
+    };
+  }
+
+  factory CrochetProject.fromJson(Map<String, dynamic> json) {
+    return CrochetProject(
+      id: json['id'],
+      title: json['title'],
+      createdAt: DateTime.parse(json['createdAt']),
+      updatedAt:
+          json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
+      stitchHistory: (json['stitchHistory'] as List).map((stitchJson) {
+        final stitchData = Map<String, dynamic>.from(stitchJson);
+        // 文字列からCrochetStitchオブジェクトに変換
+        if (stitchData['stitch'] is String) {
+          final stitchName = stitchData['stitch'] as String;
+          try {
+            stitchData['stitch'] = CrochetStitch.values.firstWhere(
+              (stitch) => stitch.name == stitchName,
+              orElse: () => CrochetStitch.singleCrochet,
+            );
+          } catch (e) {
+            print('CrochetStitch変換エラー: $stitchName, エラー: $e');
+            stitchData['stitch'] = CrochetStitch.singleCrochet;
+          }
+        }
+        // 文字列からDateTimeオブジェクトに変換
+        if (stitchData['timestamp'] is String) {
+          try {
+            stitchData['timestamp'] =
+                DateTime.parse(stitchData['timestamp'] as String);
+          } catch (e) {
+            print('DateTime変換エラー: ${stitchData['timestamp']}, エラー: $e');
+            stitchData['timestamp'] = DateTime.now();
+          }
+        }
+        return stitchData;
+      }).toList(),
+      currentRow: json['currentRow'],
+      currentStitchCount: json['currentStitchCount'],
+      iconName: json['iconName'] ?? 'work',
+      iconColor: json['iconColor'] ?? '0xFF000000',
+      backgroundColor: json['backgroundColor'] ?? '0xFFFFFFFF',
+    );
+  }
+
+  CrochetProject copyWith({
+    String? id,
+    String? title,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    List<Map<String, dynamic>>? stitchHistory,
+    int? currentRow,
+    int? currentStitchCount,
+    String? iconName,
+    String? iconColor,
+    String? backgroundColor,
+  }) {
+    return CrochetProject(
+      id: id ?? this.id,
+      title: title ?? this.title,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      stitchHistory: stitchHistory ?? this.stitchHistory,
+      currentRow: currentRow ?? this.currentRow,
+      currentStitchCount: currentStitchCount ?? this.currentStitchCount,
+      iconName: iconName ?? this.iconName,
+      iconColor: iconColor ?? this.iconColor,
+      backgroundColor: backgroundColor ?? this.backgroundColor,
+    );
+  }
+}
