@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../models/crochet_stitch.dart';
-import '../widgets/row_and_stitch_display.dart';
 import '../widgets/stitch_pattern_grid.dart';
 import '../widgets/stitch_history_section.dart';
 import '../widgets/control_buttons.dart';
@@ -24,11 +23,14 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   final List<Map<String, dynamic>> _stitchHistory = [];
   RewardedAd? _rewardedAd;
   bool _isRewardedAdLoaded = false;
+  BannerAd? _bannerAd;
+  bool _isBannerAdLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _loadRewardedAd();
+    _loadBannerAd();
   }
 
   void _loadRewardedAd() {
@@ -53,6 +55,31 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         },
       ),
     );
+  }
+
+  void _loadBannerAd() {
+    final adUnitId = Platform.isAndroid
+        ? 'ca-app-pub-3940256099942544/6300978111'
+        : 'ca-app-pub-3940256099942544/2934735716';
+    _bannerAd = BannerAd(
+      adUnitId: adUnitId,
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (ad) {
+          setState(() {
+            _isBannerAdLoaded = true;
+          });
+        },
+        onAdFailedToLoad: (ad, error) {
+          setState(() {
+            _isBannerAdLoaded = false;
+          });
+          ad.dispose();
+        },
+      ),
+    );
+    _bannerAd!.load();
   }
 
   void _showRewardedAdAndReset() {
@@ -86,6 +113,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   @override
   void dispose() {
     _rewardedAd?.dispose();
+    _bannerAd?.dispose();
     super.dispose();
   }
 
@@ -171,6 +199,16 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
   }
 
+  int _getCurrentRow() {
+    if (_stitchHistory.isEmpty) return 0;
+    return _stitchHistory.last['row'] as int;
+  }
+
+  int _getCurrentStitchCount() {
+    if (_stitchHistory.isEmpty) return 0;
+    return _stitchHistory.where((stitch) => stitch['position'] != 0).length;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -202,52 +240,9 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       body: SafeArea(
         child: Column(
           children: [
+            // 編み目履歴をトップに配置（面積をさらに調整）
             Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      RowAndStitchDisplay(
-                        rowNumber: _rowNumber,
-                        stitchCount: _stitchCount,
-                        onRowTap: (rowNumber) {
-                          // 段目ボタンがタップされた時の処理
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('$rowNumber段目をタップしました'),
-                              duration: const Duration(milliseconds: 500),
-                              backgroundColor: const Color(0xFFAD1457),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                      StitchPatternGrid(
-                        selectedStitch: _selectedStitch,
-                        onStitchSelected: (stitch) {
-                          setState(() {
-                            _selectedStitch = stitch;
-                          });
-                        },
-                        onStitchAdded: _addStitch,
-                      ),
-                      const SizedBox(height: 20),
-                      ControlButtons(
-                        onRemoveStitch: _removeLastStitch,
-                        onCompleteRow: _completeRow,
-                        onReset: _showRewardedAdAndReset,
-                        canRemoveStitch: _stitchCount > 0,
-                        canCompleteRow: _stitchCount > 0,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              height: 200,
+              flex: 1,
               child: StitchHistorySection(
                 stitchHistory: _stitchHistory,
                 onRowTap: (rowNumber) {
@@ -263,8 +258,43 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                 onRowCompleted: (rowNumber) {
                   // 段が完成した時の処理（ポップアップなし）
                 },
+                currentRow: _getCurrentRow(),
+                currentStitchCount: _getCurrentStitchCount(),
               ),
             ),
+            const SizedBox(height: 10),
+            // 編み方を選択から下を固定配置
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  StitchPatternGrid(
+                    selectedStitch: _selectedStitch,
+                    onStitchSelected: (stitch) {
+                      setState(() {
+                        _selectedStitch = stitch;
+                      });
+                    },
+                    onStitchAdded: _addStitch,
+                  ),
+                  const SizedBox(height: 20),
+                  ControlButtons(
+                    onRemoveStitch: _removeLastStitch,
+                    onCompleteRow: _completeRow,
+                    onReset: _showRewardedAdAndReset,
+                    canRemoveStitch: _stitchCount > 0,
+                    canCompleteRow: _stitchCount > 0,
+                  ),
+                ],
+              ),
+            ),
+            // バナー広告を一番下に固定配置
+            if (_isBannerAdLoaded && _bannerAd != null)
+              Container(
+                width: _bannerAd!.size.width.toDouble(),
+                height: _bannerAd!.size.height.toDouble(),
+                child: AdWidget(ad: _bannerAd!),
+              ),
           ],
         ),
       ),

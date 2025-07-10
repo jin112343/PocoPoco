@@ -7,11 +7,15 @@ class StitchHistorySection extends StatefulWidget {
     required this.stitchHistory,
     this.onRowTap,
     this.onRowCompleted,
+    this.currentRow,
+    this.currentStitchCount,
   });
 
   final List<Map<String, dynamic>> stitchHistory;
   final Function(int)? onRowTap;
   final Function(int)? onRowCompleted;
+  final int? currentRow;
+  final int? currentStitchCount;
 
   @override
   State<StitchHistorySection> createState() => _StitchHistorySectionState();
@@ -47,7 +51,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       });
     }
 
-    // 編み目が追加された場合、横スクロールも自動で最新まで
+    // 編み目が追加された場合、横スクロールを最新まで自動移動（アニメーションなし）
     if (widget.stitchHistory.length > _lastHistoryLength) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToLatestStitch();
@@ -110,14 +114,10 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     final controller = _horizontalScrollControllers[latestRow];
 
     if (controller != null) {
-      // 横スクロールを最右端まで
+      // 横スクロールを最右端まで（アニメーションなしで直接移動）
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (controller.hasClients) {
-          controller.animateTo(
-            controller.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeOut,
-          );
+        if (controller.hasClients && controller.position.maxScrollExtent > 0) {
+          controller.jumpTo(controller.position.maxScrollExtent);
         }
       });
     }
@@ -164,6 +164,16 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   ),
                 ),
                 const Spacer(),
+                if (widget.currentRow != null &&
+                    widget.currentStitchCount != null)
+                  Text(
+                    '${widget.currentRow}段目 ${widget.currentStitchCount}目',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
                 if (widget.stitchHistory.isNotEmpty)
                   Icon(
                     Icons.swipe,

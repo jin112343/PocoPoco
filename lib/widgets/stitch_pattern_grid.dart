@@ -20,7 +20,7 @@ class StitchPatternGrid extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          '編み方を選択（タップで追加・ダブルタップで編み方変更）',
+          '編み方を選択（タップで追加）',
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -55,14 +55,12 @@ class StitchPatternGrid extends StatelessWidget {
                 itemCount: 6,
                 itemBuilder: (context, index) {
                   final stitch = CrochetStitch.values[index];
-                  final isSelected = stitch == selectedStitch;
 
                   return Material(
                     color: Colors.transparent,
                     child: InkWell(
                       borderRadius: BorderRadius.circular(10),
                       onTap: () => onStitchAdded(stitch),
-                      onDoubleTap: () => onStitchSelected(stitch),
                       onLongPress: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
@@ -73,13 +71,11 @@ class StitchPatternGrid extends StatelessWidget {
                       },
                       child: Container(
                         decoration: BoxDecoration(
-                          color: isSelected
-                              ? stitch.color
-                              : stitch.color.withOpacity(0.1),
+                          color: stitch.color.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: stitch.color,
-                            width: isSelected ? 3 : 2,
+                            width: 2,
                           ),
                         ),
                         child: Row(
@@ -105,9 +101,7 @@ class StitchPatternGrid extends StatelessWidget {
                                         style: TextStyle(
                                           fontSize: 18,
                                           fontWeight: FontWeight.bold,
-                                          color: isSelected
-                                              ? stitch.color
-                                              : Colors.white,
+                                          color: stitch.color,
                                         ),
                                       ),
                               ),
@@ -121,8 +115,7 @@ class StitchPatternGrid extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
-                                  color:
-                                      isSelected ? Colors.white : stitch.color,
+                                  color: stitch.color,
                                 ),
                                 textAlign: TextAlign.center,
                                 maxLines: 1,
@@ -135,25 +128,6 @@ class StitchPatternGrid extends StatelessWidget {
                     ),
                   );
                 },
-              ),
-              const SizedBox(height: 16),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  color: selectedStitch.color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: selectedStitch.color, width: 2),
-                ),
-                child: Text(
-                  '選択中: ${selectedStitch.name}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: selectedStitch.color,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
               ),
             ],
           ),
