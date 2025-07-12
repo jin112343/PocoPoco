@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import '../models/crochet_stitch.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class StitchHistorySection extends StatefulWidget {
   const StitchHistorySection({
     super.key,
     required this.stitchHistory,
+    required this.currentStitches,
     this.onRowTap,
     this.onRowCompleted,
     this.currentRow,
@@ -12,6 +14,7 @@ class StitchHistorySection extends StatefulWidget {
   });
 
   final List<Map<String, dynamic>> stitchHistory;
+  final List<dynamic> currentStitches;
   final Function(int)? onRowTap;
   final Function(int)? onRowCompleted;
   final int? currentRow;
@@ -78,14 +81,17 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     super.dispose();
   }
 
-  void scrollToRow(int rowNumber) {
-    final key = _rowKeys[rowNumber];
-    if (key?.currentContext != null) {
-      Scrollable.ensureVisible(
-        key!.currentContext!,
-        duration: const Duration(milliseconds: 500),
-        curve: Curves.easeInOut,
-      );
+  void scrollToRow(int row) {
+    if (_rowKeys.containsKey(row)) {
+      final key = _rowKeys[row]!;
+      final context = key.currentContext;
+      if (context != null) {
+        Scrollable.ensureVisible(
+          context,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
     }
   }
 
@@ -125,10 +131,22 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   }
 
   ScrollController _getHorizontalScrollController(int row) {
-    if (!_horizontalScrollControllers.containsKey(row)) {
-      _horizontalScrollControllers[row] = ScrollController();
+    return _horizontalScrollControllers.putIfAbsent(
+        row, () => ScrollController());
+  }
+
+  String _getStitchName(dynamic stitch) {
+    final locale = context.locale.languageCode;
+
+    if (stitch is CrochetStitch) {
+      return locale == 'ja' ? stitch.nameJa : stitch.nameEn;
+    } else if (stitch is CustomStitch) {
+      return stitch.getName(context);
+    } else if (stitch is Map<String, String>) {
+      return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+    } else {
+      return 'Unknown';
     }
-    return _horizontalScrollControllers[row]!;
   }
 
   @override
@@ -285,7 +303,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                           .where((stitch) =>
                               stitch['position'] != 0) // 段開始フラグの編み目を除外
                           .map((stitchData) {
-                        final stitch = stitchData['stitch'] as CrochetStitch;
+                        final dynamic stitchObj = _findStitchInCurrentList(
+                            stitchData['stitch'], widget.currentStitches);
                         final position = stitchData['position'] as int;
 
                         return Padding(
@@ -294,30 +313,48 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Container(
-                                width: stitch.isOval ? 56 : 48,
+                                width: (stitchObj is CrochetStitch ||
+                                            stitchObj is CustomStitch) &&
+                                        stitchObj.isOval
+                                    ? 56
+                                    : 48,
                                 height: 48,
                                 decoration: BoxDecoration(
                                   color: Colors.white,
-                                  borderRadius: stitch.isOval
+                                  borderRadius: (stitchObj is CrochetStitch ||
+                                              stitchObj is CustomStitch) &&
+                                          stitchObj.isOval
                                       ? BorderRadius.circular(24)
                                       : BorderRadius.circular(10),
-                                  border:
-                                      Border.all(color: stitch.color, width: 3),
+                                  border: Border.all(
+                                    color: (stitchObj is CrochetStitch ||
+                                            stitchObj is CustomStitch)
+                                        ? stitchObj.color
+                                        : Colors.pink,
+                                    width: 3,
+                                  ),
                                 ),
                                 child: Center(
-                                  child: stitch.imagePath != null
+                                  child: (stitchObj is CrochetStitch ||
+                                              stitchObj is CustomStitch) &&
+                                          stitchObj.imagePath != null
                                       ? Image.asset(
-                                          stitch.imagePath!,
+                                          stitchObj.imagePath!,
                                           width: 32,
                                           height: 32,
                                           fit: BoxFit.contain,
                                         )
                                       : Text(
-                                          stitch.name.substring(0, 1),
+                                          _getStitchName(stitchObj)
+                                              .substring(0, 1),
                                           style: TextStyle(
                                             fontSize: 20,
                                             fontWeight: FontWeight.bold,
-                                            color: stitch.color,
+                                            color: (stitchObj
+                                                        is CrochetStitch ||
+                                                    stitchObj is CustomStitch)
+                                                ? stitchObj.color
+                                                : Colors.pink,
                                           ),
                                         ),
                                 ),
@@ -375,5 +412,41 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     }
 
     return items;
+  }
+
+  // 履歴のstitch情報を現在のボタンリストから探す
+  dynamic _findStitchInCurrentList(
+      dynamic stitch, List<dynamic> currentStitches) {
+    String? name;
+    if (stitch is CrochetStitch) {
+      name = stitch.name;
+    } else if (stitch is CustomStitch) {
+      name = stitch.name;
+    } else if (stitch is Map) {
+      name = stitch['name'] ?? stitch['nameJa'] ?? stitch['nameEn'];
+    } else if (stitch is String) {
+      name = stitch;
+    }
+    // 現在のボタンリストから一致するものを探す
+    final found = currentStitches.firstWhere(
+      (s) => (s is CrochetStitch || s is CustomStitch) && s.name == name,
+      orElse: () {
+        // なければMapからCustomStitchを生成
+        if (stitch is Map &&
+            (stitch['type'] == 'custom' || stitch['imagePath'] != null)) {
+          return CustomStitch(
+            nameJa: stitch['nameJa'] ?? stitch['name'],
+            nameEn: stitch['nameEn'] ?? stitch['name'],
+            imagePath: stitch['imagePath'],
+            color:
+                stitch['color'] != null ? Color(stitch['color']) : Colors.pink,
+            isOval: stitch['isOval'] ?? false,
+          );
+        }
+        // デフォルト
+        return CrochetStitch.singleCrochet;
+      },
+    );
+    return found;
   }
 }

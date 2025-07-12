@@ -4,6 +4,7 @@ import '../screens/stitch_customization_screen.dart';
 import '../services/stitch_settings_service.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class StitchPatternGrid extends StatefulWidget {
   const StitchPatternGrid({
@@ -17,7 +18,7 @@ class StitchPatternGrid extends StatefulWidget {
 
   final CrochetStitch selectedStitch;
   final Function(CrochetStitch) onStitchSelected;
-  final Function(CrochetStitch) onStitchAdded;
+  final Function(dynamic) onStitchAdded;
   final List<dynamic>? projectStitches; // プロジェクト固有の編み目設定
   final VoidCallback? onStitchSettingsChanged; // 編み目設定が変更された時のコールバック
 
@@ -123,7 +124,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       print('読み込まれた編み目リスト:');
       for (int i = 0; i < _stitches.length; i++) {
         final stitch = _stitches[i];
-        print('  $i: ${stitch.name} (${stitch.runtimeType})');
+        print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
       }
 
       // UIを更新
@@ -142,6 +143,25 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         });
       }
     }
+  }
+
+  String _getStitchName(dynamic stitch) {
+    final locale = context.locale.languageCode;
+    String result;
+
+    if (stitch is CrochetStitch) {
+      result = locale == 'ja' ? stitch.nameJa : stitch.nameEn;
+    } else if (stitch is CustomStitch) {
+      // CustomStitchの場合はgetNameメソッドを使用
+      result = stitch.getName(context);
+    } else if (stitch is Map<String, String>) {
+      result = locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+    } else {
+      result = 'Unknown';
+    }
+    print(
+        'StitchPatternGrid: _getStitchName - stitch: ${stitch.runtimeType}, result: $result, nameJa: ${stitch is CustomStitch ? stitch.nameJa : ''}, nameEn: ${stitch is CustomStitch ? stitch.nameEn : ''}, locale: $locale');
+    return result;
   }
 
   @override
@@ -214,14 +234,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
                               onTap: () {
-                                if (stitch is CrochetStitch) {
-                                  widget.onStitchAdded(stitch);
-                                } else if (isCustomStitch) {
-                                  // CustomStitchをCrochetStitchに変換して追加
-                                  final crochetStitch =
-                                      CrochetStitch.singleCrochet;
-                                  widget.onStitchAdded(crochetStitch);
-                                }
+                                widget.onStitchAdded(stitch);
                               },
                               onLongPress: () async {
                                 final result = await Navigator.of(context).push(
@@ -295,7 +308,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                                 fit: BoxFit.contain,
                                               )
                                             : Text(
-                                                stitch.name.substring(0, 1),
+                                                _getStitchName(stitch)
+                                                    .substring(0, 1),
                                                 style: TextStyle(
                                                   fontSize: 18,
                                                   fontWeight: FontWeight.bold,
@@ -309,9 +323,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                     const SizedBox(width: 8),
                                     Flexible(
                                       child: Text(
-                                        stitch.name.length > 8
-                                            ? '${stitch.name.substring(0, 6)}...'
-                                            : stitch.name,
+                                        _getStitchName(stitch).length > 8
+                                            ? '${_getStitchName(stitch).substring(0, 6)}...'
+                                            : _getStitchName(stitch),
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
@@ -353,14 +367,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                           child: InkWell(
                             borderRadius: BorderRadius.circular(10),
                             onTap: () {
-                              if (stitch is CrochetStitch) {
-                                widget.onStitchAdded(stitch);
-                              } else if (isCustomStitch) {
-                                // CustomStitchをCrochetStitchに変換して追加
-                                final crochetStitch =
-                                    CrochetStitch.singleCrochet;
-                                widget.onStitchAdded(crochetStitch);
-                              }
+                              widget.onStitchAdded(stitch);
                             },
                             onLongPress: () async {
                               final result = await Navigator.of(context).push(
@@ -433,7 +440,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                               fit: BoxFit.contain,
                                             )
                                           : Text(
-                                              stitch.name.substring(0, 1),
+                                              _getStitchName(stitch)
+                                                  .substring(0, 1),
                                               style: TextStyle(
                                                 fontSize: 18,
                                                 fontWeight: FontWeight.bold,
@@ -447,9 +455,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                   const SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
-                                      stitch.name.length > 8
-                                          ? '${stitch.name.substring(0, 6)}...'
-                                          : stitch.name,
+                                      _getStitchName(stitch).length > 8
+                                          ? '${_getStitchName(stitch).substring(0, 6)}...'
+                                          : _getStitchName(stitch),
                                       style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,

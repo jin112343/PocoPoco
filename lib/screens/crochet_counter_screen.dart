@@ -198,20 +198,51 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     _bannerAd!.load();
   }
 
-  void _addStitch(CrochetStitch stitch) {
+  void _addStitch(dynamic stitch) {
     try {
       setState(() {
         _stitchCount++;
-        _stitchHistory.add({
-          'stitch': stitch,
+
+        // stitchの型に応じて履歴に保存する情報を決定
+        Map<String, dynamic> historyItem = {
           'row': _rowNumber,
           'position': _stitchCount,
           'timestamp': DateTime.now(),
-        });
+        };
+
+        if (stitch is CrochetStitch) {
+          historyItem['stitch'] = stitch;
+        } else if (stitch is CustomStitch) {
+          // CustomStitchの場合は必要な情報をすべて保存
+          historyItem['stitch'] = {
+            'type': 'custom',
+            'name': stitch.name,
+            'nameJa': stitch.nameJa,
+            'nameEn': stitch.nameEn,
+            'imagePath': stitch.imagePath,
+            'color': stitch.color.value,
+            'isOval': stitch.isOval,
+          };
+        } else {
+          // その他の型の場合はそのまま保存
+          historyItem['stitch'] = stitch;
+        }
+
+        _stitchHistory.add(historyItem);
         _hasUnsavedChanges = true;
       });
-      _logger.i(
-          'addStitch: ${stitch.name}を追加しました。段: $_rowNumber, 位置: $_stitchCount');
+
+      String stitchName = '';
+      if (stitch is CrochetStitch) {
+        stitchName = stitch.name;
+      } else if (stitch is CustomStitch) {
+        stitchName = stitch.name;
+      } else {
+        stitchName = stitch.toString();
+      }
+
+      _logger
+          .i('addStitch: $stitchNameを追加しました。段: $_rowNumber, 位置: $_stitchCount');
     } catch (e, stackTrace) {
       _logger.e('関数名: _addStitch, '
           'パラメータ: stitch=$stitch, '
@@ -605,6 +636,9 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                 flex: 1,
                 child: StitchHistorySection(
                   stitchHistory: _stitchHistory,
+                  currentStitches: _projectCustomStitches ??
+                      widget.project?.customStitches ??
+                      StitchSettingsService.getDefaultStitches(),
                   onRowTap: (rowNumber) {
                     // 履歴の段目がタップされた時の処理
                     ScaffoldMessenger.of(context).showSnackBar(

@@ -4,6 +4,7 @@ import '../services/stitch_settings_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
+import 'dart:ui' as ui;
 
 class StitchCustomizationScreen extends StatefulWidget {
   final List<dynamic>? projectStitches; // プロジェクト固有の編み目設定
@@ -116,39 +117,176 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   // プレミアム編み目のリスト
   final List<Map<String, String>> _premiumStitches = [
-    {'name': 'うね編み', 'image': 'assets/images/うね編み.png'},
-    {'name': 'ねじれ細編み目', 'image': 'assets/images/ねじれ細編み目.png'},
-    {'name': '長編み１目交差', 'image': 'assets/images/長編み１目交差.png'},
-    {'name': 'バック細編み', 'image': 'assets/images/バック細編み.png'},
-    {'name': '四つ巻き長編み目', 'image': 'assets/images/四つ巻き長編み目.png'},
-    {'name': '三つ巻き長編み目', 'image': 'assets/images/三つ巻き長編み目.png'},
-    {'name': '中長編み１目交差', 'image': 'assets/images/中長編み　１目交差  .png'},
-    {'name': '長編み３目の玉編み目', 'image': 'assets/images/長編み３目の玉編み目.png'},
-    {'name': '長編み１目左上３目交差', 'image': 'assets/images/長編み１目左上３目交差  .png'},
-    {'name': '長編み１目右上交差', 'image': 'assets/images/長編み１目右上交差.png'},
-    {'name': '長編み１目右上３目交差', 'image': 'assets/images/長編み１目右上３目交差.png'},
-    {'name': '中長編み３目の玉編み目', 'image': 'assets/images/中長編み３目の玉編み目.png'},
-    {'name': '長々編み５目の玉編み目', 'image': 'assets/images/長々編み５目の玉編み目.png'},
-    {'name': '変わり玉編み目＜中長編み3目＞', 'image': 'assets/images/変わり玉編み目＜中長編み3目＞.png'},
-    {'name': '変わり玉編み目＜長編み3目＞', 'image': 'assets/images/変わり玉編み目＜長編み3目＞  .png'},
-    {'name': '引き出し玉編み目', 'image': 'assets/images/引き出し玉編み目.png'},
-    {'name': '変わり玉編み目＜長編み3目＞', 'image': 'assets/images/変わり玉編み目＜長編み3目＞.png'},
-    {'name': '細こま編み２目編み入れる', 'image': 'assets/images/細こま編み２目編み入れる.png'},
-    {'name': '中長編み５目のパプコーン編み', 'image': 'assets/images/中長編み５目のパプコーン編み.png'},
-    {'name': '長編み５目のパプコーン編み', 'image': 'assets/images/長編み５目のパプコーン編み  .png'},
-    {'name': '長々編み６目のパプコーン編み目', 'image': 'assets/images/長々編み６目のパプコーン編み目.png'},
-    {'name': '細こま編み3目編み入れる', 'image': 'assets/images/細こま編み3目編み入れる.png'},
-    {'name': '長編み3目編み入れる', 'image': 'assets/images/長編み3目編み入れる.png'},
-    {'name': '中長編み2目編み入れる', 'image': 'assets/images/中長編み2目編み入れる  .png'},
-    {'name': '細こま編み２目一度', 'image': 'assets/images/細こま編み２目一度.png'},
-    {'name': '中長編み3目編み入れる', 'image': 'assets/images/中長編み3目編み入れる.png'},
-    {'name': '長編み２目編み入れる', 'image': 'assets/images/長編み２目編み入れる.png'},
-    {'name': '中長編み2目一度', 'image': 'assets/images/中長編み2目一度.png'},
-    {'name': '細こま編み3目一度', 'image': 'assets/images/細こま編み3目一度.png'},
-    {'name': '中長編み３目一度', 'image': 'assets/images/中長編み３目一度.png'},
-    {'name': '長編み２目一度', 'image': 'assets/images/長編み２目一度.png'},
-    {'name': '長編み3目一度', 'image': 'assets/images/長編み3目一度.png'},
+    {
+      'nameJa': 'うね編み',
+      'nameEn': 'Wave Stitch',
+      'image': 'assets/images/うね編み.png'
+    },
+    {
+      'nameJa': 'ねじれ細編み目',
+      'nameEn': 'Twisted Single Crochet',
+      'image': 'assets/images/ねじれ細編み目.png'
+    },
+    {
+      'nameJa': '長編み１目交差',
+      'nameEn': 'Double Crochet Cross',
+      'image': 'assets/images/長編み１目交差.png'
+    },
+    {
+      'nameJa': 'バック細編み',
+      'nameEn': 'Back Single Crochet',
+      'image': 'assets/images/バック細編み.png'
+    },
+    {
+      'nameJa': '四つ巻き長編み目',
+      'nameEn': 'Quadruple Crochet',
+      'image': 'assets/images/四つ巻き長編み目.png'
+    },
+    {
+      'nameJa': '三つ巻き長編み目',
+      'nameEn': 'Triple Crochet',
+      'image': 'assets/images/三つ巻き長編み目.png'
+    },
+    {
+      'nameJa': '中長編み１目交差',
+      'nameEn': 'Half Double Crochet Cross',
+      'image': 'assets/images/中長編み１目交差.png'
+    },
+    {
+      'nameJa': '長編み３目の玉編み目',
+      'nameEn': 'Double Crochet 3 Bobble',
+      'image': 'assets/images/長編み３目の玉編み目.png'
+    },
+    {
+      'nameJa': '長編み１目左上３目交差',
+      'nameEn': 'Double Crochet Left Cross 3',
+      'image': 'assets/images/長編み１目左上３目交差.png'
+    },
+    {
+      'nameJa': '長編み１目右上交差',
+      'nameEn': 'Double Crochet Right Cross',
+      'image': 'assets/images/長編み１目右上交差.png'
+    },
+    {
+      'nameJa': '長編み１目右上３目交差',
+      'nameEn': 'Double Crochet Right Cross 3',
+      'image': 'assets/images/長編み１目右上３目交差.png'
+    },
+    {
+      'nameJa': '中長編み３目の玉編み目',
+      'nameEn': 'Half Double Crochet 3 Bobble',
+      'image': 'assets/images/中長編み３目の玉編み目.png'
+    },
+    {
+      'nameJa': '長々編み５目の玉編み目',
+      'nameEn': 'Treble Crochet 5 Bobble',
+      'image': 'assets/images/長々編み５目の玉編み目.png'
+    },
+    {
+      'nameJa': '変わり玉編み目＜中長編み3目＞',
+      'nameEn': 'Special Bobble Half Double Crochet 3',
+      'image': 'assets/images/変わり玉編み目＜中長編み3目＞.png'
+    },
+    {
+      'nameJa': '変わり玉編み目＜長編み3目＞',
+      'nameEn': 'Special Bobble Double Crochet 3',
+      'image': 'assets/images/変わり玉編み目＜長編み3目＞.png'
+    },
+    {
+      'nameJa': '引き出し玉編み目',
+      'nameEn': 'Popcorn Stitch',
+      'image': 'assets/images/引き出し玉編み目.png'
+    },
+    {
+      'nameJa': '細こま編み２目編み入れる',
+      'nameEn': 'Single Crochet 2 Increase',
+      'image': 'assets/images/細こま編み２目編み入れる.png'
+    },
+    {
+      'nameJa': '中長編み５目のパプコーン編み',
+      'nameEn': 'Half Double Crochet 5 Popcorn',
+      'image': 'assets/images/中長編み５目のパプコーン編み.png'
+    },
+    {
+      'nameJa': '長編み５目のパプコーン編み',
+      'nameEn': 'Double Crochet 5 Popcorn',
+      'image': 'assets/images/長編み５目のパプコーン編み.png'
+    },
+    {
+      'nameJa': '長々編み６目のパプコーン編み目',
+      'nameEn': 'Treble Crochet 6 Popcorn',
+      'image': 'assets/images/長々編み６目のパプコーン編み目.png'
+    },
+    {
+      'nameJa': '細こま編み3目編み入れる',
+      'nameEn': 'Single Crochet 3 Increase',
+      'image': 'assets/images/細こま編み3目編み入れる.png'
+    },
+    {
+      'nameJa': '長編み3目編み入れる',
+      'nameEn': 'Double Crochet 3 Increase',
+      'image': 'assets/images/長編み3目編み入れる.png'
+    },
+    {
+      'nameJa': '中長編み2目編み入れる',
+      'nameEn': 'Half Double Crochet 2 Increase',
+      'image': 'assets/images/中長編み2目編み入れる.png'
+    },
+    {
+      'nameJa': '細こま編み２目一度',
+      'nameEn': 'Single Crochet 2 Together',
+      'image': 'assets/images/細こま編み２目一度.png'
+    },
+    {
+      'nameJa': '中長編み3目編み入れる',
+      'nameEn': 'Half Double Crochet 3 Increase',
+      'image': 'assets/images/中長編み3目編み入れる.png'
+    },
+    {
+      'nameJa': '長編み２目編み入れる',
+      'nameEn': 'Double Crochet 2 Increase',
+      'image': 'assets/images/長編み２目編み入れる.png'
+    },
+    {
+      'nameJa': '中長編み2目一度',
+      'nameEn': 'Half Double Crochet 2 Together',
+      'image': 'assets/images/中長編み2目一度.png'
+    },
+    {
+      'nameJa': '細こま編み3目一度',
+      'nameEn': 'Single Crochet 3 Together',
+      'image': 'assets/images/細こま編み3目一度.png'
+    },
+    {
+      'nameJa': '中長編み３目一度',
+      'nameEn': 'Half Double Crochet 3 Together',
+      'image': 'assets/images/中長編み３目一度.png'
+    },
+    {
+      'nameJa': '長編み２目一度',
+      'nameEn': 'Double Crochet 2 Together',
+      'image': 'assets/images/長編み２目一度.png'
+    },
+    {
+      'nameJa': '長編み3目一度',
+      'nameEn': 'Double Crochet 3 Together',
+      'image': 'assets/images/長編み3目一度.png'
+    },
   ];
+
+  String _getStitchName(dynamic stitch) {
+    final locale = context.locale.languageCode;
+
+    if (stitch is CrochetStitch) {
+      return locale == 'ja' ? stitch.nameJa : stitch.nameEn;
+    } else if (stitch is CustomStitch) {
+      return stitch.getName(context);
+    } else if (stitch is Map<String, String>) {
+      return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+    } else {
+      return 'Unknown';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -224,12 +362,12 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                       height: 24,
                                     )
                                   : Text(
-                                      stitch.name,
+                                      _getStitchName(stitch),
                                       style: const TextStyle(fontSize: 16),
                                     ),
                             ),
                           ),
-                          title: Text(stitch.name),
+                          title: Text(_getStitchName(stitch)),
                           subtitle: Text(isCustomStitch
                               ? tr('premium_stitch')
                               : tr('basic_stitch')),
@@ -240,7 +378,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                 context: context,
                                 builder: (context) => AlertDialog(
                                   title: const Text('編み目を削除'),
-                                  content: Text('「${stitch.name}」を削除しますか？'),
+                                  content: Text(
+                                      '「${_getStitchName(stitch)}」を削除しますか？'),
                                   actions: [
                                     TextButton(
                                       onPressed: () =>
@@ -300,12 +439,12 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                       height: 24,
                                     )
                                   : Text(
-                                      stitch.name,
+                                      _getStitchName(stitch),
                                       style: const TextStyle(fontSize: 16),
                                     ),
                             ),
                           ),
-                          title: Text(stitch.name),
+                          title: Text(_getStitchName(stitch)),
                           subtitle: Text(isCustomStitch
                               ? tr('premium_stitch')
                               : tr('basic_stitch')),
@@ -316,7 +455,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                 context: context,
                                 builder: (context) => AlertDialog(
                                   title: const Text('編み目を削除'),
-                                  content: Text('「${stitch.name}」を削除しますか？'),
+                                  content: Text(
+                                      '「${_getStitchName(stitch)}」を削除しますか？'),
                                   actions: [
                                     TextButton(
                                       onPressed: () =>
@@ -359,7 +499,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       print('保存する編み目リスト:');
       for (int i = 0; i < _stitches.length; i++) {
         final stitch = _stitches[i];
-        print('  $i: ${stitch.name} (${stitch.runtimeType})');
+        print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
       }
 
       final success = await StitchSettingsService.saveGlobalStitches(_stitches);
@@ -375,12 +515,12 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   void _showAddStitchDialog() {
     // 現在の編み目リストに含まれていない編み目を取得
-    final currentStitchNames = _stitches.map((s) => s.name).toSet();
+    final currentStitchNames = _stitches.map((s) => _getStitchName(s)).toSet();
     final availableBasicStitches = CrochetStitch.values
-        .where((stitch) => !currentStitchNames.contains(stitch.name))
+        .where((stitch) => !currentStitchNames.contains(_getStitchName(stitch)))
         .toList();
     final availablePremiumStitches = _premiumStitches
-        .where((stitch) => !currentStitchNames.contains(stitch['name']))
+        .where((stitch) => !currentStitchNames.contains(_getStitchName(stitch)))
         .toList();
 
     showDialog(
@@ -435,7 +575,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                           fit: BoxFit.contain,
                                         )
                                       : Text(
-                                          stitch.name.substring(0, 1),
+                                          _getStitchName(stitch)
+                                              .substring(0, 1),
                                           style: TextStyle(
                                             fontSize: 18,
                                             fontWeight: FontWeight.bold,
@@ -447,7 +588,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                               Padding(
                                 padding: const EdgeInsets.all(4),
                                 child: Text(
-                                  stitch.name,
+                                  _getStitchName(stitch),
                                   style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
@@ -512,7 +653,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                               Padding(
                                 padding: const EdgeInsets.all(4),
                                 child: Text(
-                                  stitch['name']!,
+                                  _getStitchName(stitch),
                                   style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
@@ -582,7 +723,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   void _addPremiumStitch(Map<String, String> stitchData) async {
     // プレミアム編み目をカスタム編み目として追加
     final customStitch = CustomStitch(
-      name: stitchData['name']!,
+      nameJa: stitchData['nameJa']!,
+      nameEn: stitchData['nameEn']!,
       imagePath: stitchData['image'],
     );
 

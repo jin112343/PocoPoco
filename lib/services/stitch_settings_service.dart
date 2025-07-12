@@ -48,6 +48,8 @@ class StitchSettingsService {
               return {
                 'type': 'custom',
                 'name': stitch.name,
+                'nameJa': stitch.nameJa,
+                'nameEn': stitch.nameEn,
                 'imagePath': stitch.imagePath,
                 'color': stitch.color.value,
                 'isOval': stitch.isOval,
@@ -95,7 +97,10 @@ class StitchSettingsService {
           }
         } else if (stitchData['type'] == 'custom') {
           return CustomStitch(
-            name: stitchData['name'] as String,
+            nameJa:
+                stitchData['nameJa'] as String? ?? stitchData['name'] as String,
+            nameEn:
+                stitchData['nameEn'] as String? ?? stitchData['name'] as String,
             imagePath: stitchData['imagePath'] as String?,
             color: Color(stitchData['color'] as int),
             isOval: stitchData['isOval'] as bool? ?? false,

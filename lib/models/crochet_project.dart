@@ -63,6 +63,8 @@ class CrochetProject {
               return {
                 'type': 'custom',
                 'name': stitch.name,
+                'nameJa': stitch.nameJa,
+                'nameEn': stitch.nameEn,
                 'imagePath': stitch.imagePath,
                 'color': stitch.color.value,
                 'isOval': stitch.isOval,
@@ -84,8 +86,10 @@ class CrochetProject {
           json['updatedAt'] != null ? DateTime.parse(json['updatedAt']) : null,
       stitchHistory: (json['stitchHistory'] as List).map((stitchJson) {
         final stitchData = Map<String, dynamic>.from(stitchJson);
-        // 文字列からCrochetStitchオブジェクトに変換
+
+        // stitchの復元処理
         if (stitchData['stitch'] is String) {
+          // 文字列の場合はCrochetStitchとして復元
           final stitchName = stitchData['stitch'] as String;
           try {
             stitchData['stitch'] = CrochetStitch.values.firstWhere(
@@ -96,7 +100,25 @@ class CrochetProject {
             print('CrochetStitch変換エラー: $stitchName, エラー: $e');
             stitchData['stitch'] = CrochetStitch.singleCrochet;
           }
+        } else if (stitchData['stitch'] is Map<String, dynamic>) {
+          // Mapの場合はCustomStitchとして復元
+          final stitchMap = stitchData['stitch'] as Map<String, dynamic>;
+          if (stitchMap['type'] == 'custom') {
+            stitchData['stitch'] = CustomStitch(
+              nameJa:
+                  stitchMap['nameJa'] as String? ?? stitchMap['name'] as String,
+              nameEn:
+                  stitchMap['nameEn'] as String? ?? stitchMap['name'] as String,
+              imagePath: stitchMap['imagePath'] as String?,
+              color: Color(stitchMap['color'] as int),
+              isOval: stitchMap['isOval'] as bool? ?? false,
+            );
+          } else {
+            // 不明な型の場合はCrochetStitchとして復元
+            stitchData['stitch'] = CrochetStitch.singleCrochet;
+          }
         }
+
         // 文字列からDateTimeオブジェクトに変換
         if (stitchData['timestamp'] is String) {
           try {
@@ -129,7 +151,10 @@ class CrochetProject {
           }
         } else if (stitchData['type'] == 'custom') {
           return CustomStitch(
-            name: stitchData['name'] as String,
+            nameJa:
+                stitchData['nameJa'] as String? ?? stitchData['name'] as String,
+            nameEn:
+                stitchData['nameEn'] as String? ?? stitchData['name'] as String,
             imagePath: stitchData['imagePath'] as String?,
             color: Color(stitchData['color'] as int),
             isOval: stitchData['isOval'] as bool? ?? false,
