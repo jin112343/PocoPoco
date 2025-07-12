@@ -41,7 +41,17 @@ void main() async {
       fallbackLocale: const Locale('ja'),
       startLocale: const Locale('ja'),
       child: ChangeNotifierProvider(
-        create: (_) => SubscriptionProvider()..loadStatus(),
+        create: (_) {
+          final provider = SubscriptionProvider();
+          // アプリ起動時にサブスクリプション状態を読み込み
+          provider.loadStatus().then((_) {
+            // 定期的にサブスクリプションの有効性をチェック（1時間ごと）
+            Future.delayed(const Duration(hours: 1), () {
+              provider.loadStatus();
+            });
+          });
+          return provider;
+        },
         child: const MyApp(),
       ),
     ),
