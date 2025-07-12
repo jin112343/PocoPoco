@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class ControlButtons extends StatelessWidget {
   const ControlButtons({
@@ -23,7 +24,7 @@ class ControlButtons extends StatelessWidget {
         Expanded(
           child: ControlButton(
             icon: Icons.undo,
-            label: '1つ戻す',
+            label: tr('undo'),
             onPressed: canRemoveStitch ? onRemoveStitch : null,
             color: Colors.orange,
           ),
@@ -32,7 +33,7 @@ class ControlButtons extends StatelessWidget {
         Expanded(
           child: ControlButton(
             icon: Icons.check_circle,
-            label: '段完成',
+            label: tr('complete_row'),
             onPressed: canCompleteRow ? onCompleteRow : null,
             color: Colors.green,
           ),
@@ -41,7 +42,7 @@ class ControlButtons extends StatelessWidget {
         Expanded(
           child: ControlButton(
             icon: Icons.refresh,
-            label: 'リセット',
+            label: tr('reset'),
             onPressed: onReset,
             color: Colors.grey,
           ),

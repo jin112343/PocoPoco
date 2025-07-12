@@ -1,4 +1,5 @@
 import '../models/crochet_stitch.dart';
+import 'package:flutter/material.dart';
 
 class CrochetProject {
   final String id;
@@ -11,6 +12,7 @@ class CrochetProject {
   final String iconName;
   final String iconColor;
   final String backgroundColor;
+  final List<dynamic> customStitches; // プロジェクト固有の編み目設定
 
   CrochetProject({
     required this.id,
@@ -23,6 +25,7 @@ class CrochetProject {
     this.iconName = 'work',
     this.iconColor = '0xFF000000',
     this.backgroundColor = '0xFFFFFFFF',
+    this.customStitches = const [], // デフォルトは空
   });
 
   Map<String, dynamic> toJson() {
@@ -49,6 +52,26 @@ class CrochetProject {
       'iconName': iconName,
       'iconColor': iconColor,
       'backgroundColor': backgroundColor,
+      'customStitches': customStitches
+          .map((stitch) {
+            if (stitch is CrochetStitch) {
+              return {
+                'type': 'enum',
+                'name': stitch.name,
+              };
+            } else if (stitch is CustomStitch) {
+              return {
+                'type': 'custom',
+                'name': stitch.name,
+                'imagePath': stitch.imagePath,
+                'color': stitch.color.value,
+                'isOval': stitch.isOval,
+              };
+            }
+            return null;
+          })
+          .where((item) => item != null)
+          .toList(),
     };
   }
 
@@ -91,6 +114,29 @@ class CrochetProject {
       iconName: json['iconName'] ?? 'work',
       iconColor: json['iconColor'] ?? '0xFF000000',
       backgroundColor: json['backgroundColor'] ?? '0xFFFFFFFF',
+      customStitches: (json['customStitches'] as List? ?? []).map((stitchJson) {
+        final stitchData = Map<String, dynamic>.from(stitchJson);
+        if (stitchData['type'] == 'enum') {
+          final stitchName = stitchData['name'] as String;
+          try {
+            return CrochetStitch.values.firstWhere(
+              (stitch) => stitch.name == stitchName,
+              orElse: () => CrochetStitch.singleCrochet,
+            );
+          } catch (e) {
+            print('CrochetStitch変換エラー: $stitchName, エラー: $e');
+            return CrochetStitch.singleCrochet;
+          }
+        } else if (stitchData['type'] == 'custom') {
+          return CustomStitch(
+            name: stitchData['name'] as String,
+            imagePath: stitchData['imagePath'] as String?,
+            color: Color(stitchData['color'] as int),
+            isOval: stitchData['isOval'] as bool? ?? false,
+          );
+        }
+        return CrochetStitch.singleCrochet; // デフォルト
+      }).toList(),
     );
   }
 
@@ -105,6 +151,7 @@ class CrochetProject {
     String? iconName,
     String? iconColor,
     String? backgroundColor,
+    List<dynamic>? customStitches,
   }) {
     return CrochetProject(
       id: id ?? this.id,
@@ -117,6 +164,7 @@ class CrochetProject {
       iconName: iconName ?? this.iconName,
       iconColor: iconColor ?? this.iconColor,
       backgroundColor: backgroundColor ?? this.backgroundColor,
+      customStitches: customStitches ?? this.customStitches,
     );
   }
 }

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../models/crochet_project.dart';
 import '../services/storage_service.dart';
 import 'crochet_counter_screen.dart';
 import 'settings_screen.dart';
+import '../services/subscription_provider.dart';
+import 'package:easy_localization/easy_localization.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -47,6 +50,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _createNewProject() {
+    final isPremium = context.read<SubscriptionProvider>().isPremium;
+    if (!isPremium && _projects.length >= 3) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('保存上限に達しました'),
+          content: const Text('無料プランでは最大3つまで保存できます。\nアップグレードで無制限に保存できます。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     Navigator.of(context)
         .push(
       MaterialPageRoute(
@@ -583,12 +603,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    print('=== HomeScreen build開始 ===');
+    print('_isLoading: $_isLoading');
+    print('_projects.length: ${_projects.length}');
+
     return Scaffold(
       backgroundColor: const Color(0xFFFCE4EC),
       appBar: AppBar(
-        title: const Text(
-          'かぎ針編みカウンター',
-          style: TextStyle(
+        title: Text(
+          tr('app_title'),
+          style: const TextStyle(
             fontWeight: FontWeight.bold,
             color: Colors.white,
           ),
@@ -627,7 +651,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        'プロジェクトがありません',
+                        tr('no_projects'),
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -636,7 +660,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        '新しい編みものを作成して\n編み物を始めましょう',
+                        tr('create_new_project'),
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.grey.shade500,

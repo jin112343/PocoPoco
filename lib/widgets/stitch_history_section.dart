@@ -51,7 +51,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       });
     }
 
-    // 編み目が追加された場合、横スクロールを最新まで自動移動（アニメーションなし）
+    // 編み目が追加された場合、一番右の最新を表示するために自動スクロール
     if (widget.stitchHistory.length > _lastHistoryLength) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToLatestStitch();
@@ -113,13 +113,14 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     final latestRow = widget.stitchHistory.last['row'] as int;
     final controller = _horizontalScrollControllers[latestRow];
 
-    if (controller != null) {
-      // 横スクロールを最右端まで（アニメーションなしで直接移動）
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (controller.hasClients && controller.position.maxScrollExtent > 0) {
-          controller.jumpTo(controller.position.maxScrollExtent);
-        }
-      });
+    if (controller != null && controller.hasClients) {
+      final position = controller.position;
+      final maxScrollExtent = position.maxScrollExtent;
+
+      if (maxScrollExtent > 0) {
+        // 一番右の最新を表示するために最右端までスクロール
+        controller.jumpTo(maxScrollExtent);
+      }
     }
   }
 

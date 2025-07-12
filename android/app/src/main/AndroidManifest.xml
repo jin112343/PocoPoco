@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="poco"
+        android:label="PocoPoco"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- AdMob App ID -->

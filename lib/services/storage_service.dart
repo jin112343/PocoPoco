@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/crochet_project.dart';
+import 'subscription_provider.dart';
 
 class StorageService {
   static const String _projectsKey = 'crochet_projects';
@@ -52,7 +53,8 @@ class StorageService {
   }
 
   // プロジェクトを保存
-  Future<bool> saveProject(CrochetProject project) async {
+  Future<bool> saveProject(CrochetProject project,
+      {bool isPremium = false}) async {
     try {
       print('プロジェクト保存開始: ${project.title}');
       await _initPrefs();
@@ -65,6 +67,11 @@ class StorageService {
         print('既存プロジェクトを更新: ${project.title}');
         projects[existingIndex] = project.copyWith(updatedAt: DateTime.now());
       } else {
+        // 新規プロジェクトの場合、プレミアムでない場合は保存制限をチェック
+        if (!isPremium && projects.length >= 3) {
+          print('保存制限に達しました（無料プラン）');
+          return false;
+        }
         print('新規プロジェクトを追加: ${project.title}');
         projects.add(project);
       }
