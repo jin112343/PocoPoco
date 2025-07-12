@@ -34,7 +34,8 @@ flutter:
     - assets/images/
     - assets/lang/
 
-flutter_icons:
+flutter_launcher_icons:
   image_path: "assets/images/icon_1024.png"
   android: true
   ios: true
+  remove_alpha_ios: true
