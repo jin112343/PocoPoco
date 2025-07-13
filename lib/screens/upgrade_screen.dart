@@ -575,11 +575,6 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                       '広告なし',
                                       '快適な編み物体験を提供',
                                     ),
-                                    _buildFeatureItem(
-                                      '0xe3b3', // Icons.backup
-                                      'データバックアップ',
-                                      '大切な編み物データを安全に保存',
-                                    ),
                                   ],
                                 ),
                               ),

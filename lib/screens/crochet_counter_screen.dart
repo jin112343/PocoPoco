@@ -46,7 +46,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     super.initState();
     _loadRewardedAd();
     _loadBannerAd();
-    _initializeProject();
+    _initializeProject().then((_) {
+      // 初期化完了後にsetStateを呼び出してUIを更新
+      if (mounted) {
+        setState(() {});
+      }
+    });
   }
 
   @override
@@ -114,7 +119,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
   }
 
-  void _initializeProject() {
+  Future<void> _initializeProject() async {
     try {
       if (widget.project != null) {
         // 既存のプロジェクトを読み込み
@@ -133,9 +138,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         // 新しい編みものを作成
         _projectId = _storageService.generateProjectId();
         _projectTitle = '新しい編みもの';
-        _projectCustomStitches = null;
+        // 新規プロジェクトの場合はグローバル編み目設定を初期値として使用
+        _projectCustomStitches =
+            await StitchSettingsService.getGlobalStitches();
         _hasUnsavedChanges = false; // 新規プロジェクトは変更なしとして初期化
-        print('新規編みもの作成: $_projectId');
+        print(
+            '新規編みもの作成: $_projectId, 編み目設定: ${_projectCustomStitches?.length}個');
       }
     } catch (e) {
       print('プロジェクト初期化エラー: $e');
@@ -145,7 +153,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       _stitchCount = 0;
       _rowNumber = 1;
       _stitchHistory.clear();
-      _projectCustomStitches = null;
+      _projectCustomStitches = StitchSettingsService.getDefaultStitches();
       _hasUnsavedChanges = false;
     }
   }
@@ -408,7 +416,8 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         iconName: widget.project?.iconName ?? 'work',
         iconColor: widget.project?.iconColor ?? '0xFF000000',
         backgroundColor: widget.project?.backgroundColor ?? '0xFFFFFFFF',
-        customStitches: widget.project?.customStitches ?? [],
+        customStitches:
+            _projectCustomStitches ?? widget.project?.customStitches ?? [],
       );
 
       print(
@@ -588,7 +597,14 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
               onPressed: () async {
                 final result = await _saveProject();
                 if (result) {
-                  _showRewardedAdAndReset();
+                  // 保存成功後はリセットせず、成功メッセージのみ表示
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(tr('save') + ' ' + tr('ok')),
+                      backgroundColor: Colors.green,
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
                 }
               },
             ),
