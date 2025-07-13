@@ -17,6 +17,7 @@ class SubscriptionProvider extends ChangeNotifier {
   // サブスクリプション状態をセット
   void setPremium(bool value,
       {String? subscriptionId, DateTime? expiryDate}) async {
+    print('プレミアム状態を設定: $value, サブスクID: $subscriptionId, 有効期限: $expiryDate');
     _isPremium = value;
     _activeSubscriptionId = subscriptionId;
     _subscriptionExpiryDate = expiryDate;

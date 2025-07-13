@@ -158,6 +158,33 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
   }
 
+  // プロジェクト固有の編み目設定を再読み込み
+  Future<void> _reloadProjectCustomStitches() async {
+    try {
+      if (widget.project != null) {
+        // 既存プロジェクトの場合は保存された設定を再読み込み
+        final updatedProject = await _storageService.getProjects();
+        final currentProject = updatedProject.firstWhere(
+          (p) => p.id == widget.project!.id,
+          orElse: () => widget.project!,
+        );
+        _projectCustomStitches = currentProject.customStitches;
+        print('プロジェクト固有の編み目設定を再読み込み: ${_projectCustomStitches?.length}個');
+      } else {
+        // 新規プロジェクトの場合はグローバル設定を再読み込み
+        _projectCustomStitches =
+            await StitchSettingsService.getGlobalStitches();
+        print('グローバル編み目設定を再読み込み: ${_projectCustomStitches?.length}個');
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      print('編み目設定再読み込みエラー: $e');
+    }
+  }
+
   void _loadRewardedAd() {
     final adUnitId = Platform.isAndroid
         ? 'ca-app-pub-1187210314934709/4892788853'
@@ -424,6 +451,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
           'プロジェクト作成完了: ${project.title}, 履歴数: ${project.stitchHistory.length}');
 
       final isPremium = context.read<SubscriptionProvider>().isPremium;
+      print('保存時のプレミアム状態: $isPremium');
       final success =
           await _storageService.saveProject(project, isPremium: isPremium);
       print('保存結果: $success');
@@ -457,6 +485,36 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         ),
       );
       return false;
+    }
+  }
+
+  // 保存成功後に動画広告を再生するメソッド
+  void _showRewardedAdAfterSave() {
+    final isPremium = context.read<SubscriptionProvider>().isPremium;
+    if (isPremium) {
+      // プレミアムユーザーは動画広告を再生しない
+      return;
+    }
+
+    if (_isRewardedAdLoaded && _rewardedAd != null) {
+      _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _loadRewardedAd(); // 次の動画広告を読み込み
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) {
+          ad.dispose();
+          _loadRewardedAd(); // 次の動画広告を読み込み
+        },
+      );
+      _rewardedAd!.show(
+        onUserEarnedReward: (ad, reward) {
+          // 報酬を付与（保存完了の報酬として扱う）
+          print('保存完了の動画広告報酬を付与');
+        },
+      );
+    } else {
+      print('動画広告が読み込まれていません');
     }
   }
 
@@ -577,7 +635,9 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                 print('保存処理実行');
                 final saveSuccess = await _saveProject();
                 if (saveSuccess) {
-                  print('保存成功、ホーム画面に遷移');
+                  print('保存成功、動画広告を再生してからホーム画面に遷移');
+                  // 保存成功後に動画広告を再生
+                  _showRewardedAdAfterSave();
                   Navigator.of(context).pushAndRemoveUntil(
                     MaterialPageRoute(
                       builder: (context) => const HomeScreen(),
@@ -597,6 +657,8 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
               onPressed: () async {
                 final result = await _saveProject();
                 if (result) {
+                  // 保存成功後に動画広告を再生
+                  _showRewardedAdAfterSave();
                   // 保存成功後はリセットせず、成功メッセージのみ表示
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -679,7 +741,8 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                 child: Column(
                   children: [
                     StitchPatternGrid(
-                      key: const ValueKey('stitch_pattern_grid'),
+                      key: ValueKey(
+                          'stitch_pattern_grid_${_projectCustomStitches?.length ?? 0}'),
                       selectedStitch: _selectedStitch,
                       onStitchSelected: (stitch) {
                         setState(() {
@@ -692,93 +755,103 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                       onStitchSettingsChanged: () async {
                         print('CrochetCounterScreen: 編み目設定が変更されました');
 
-                        // 保存確認ダイアログを表示
-                        final result = await showDialog<bool>(
-                          context: context,
-                          barrierDismissible: false,
-                          builder: (context) => AlertDialog(
-                            title: const Text('編み目設定の変更'),
-                            content: const Text('編み目設定の変更を保存しますか？'),
-                            actions: [
-                              TextButton(
-                                onPressed: () {
-                                  print('編み目設定の変更を保存しない');
-                                  Navigator.of(context).pop(false);
-                                },
-                                child: const Text('保存しない'),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  print('編み目設定の変更を保存');
-                                  Navigator.of(context).pop(true);
-                                },
-                                child: const Text('保存'),
-                              ),
-                            ],
-                          ),
-                        );
+                        try {
+                          // 保存確認ダイアログを表示
+                          final result = await showDialog<bool>(
+                            context: context,
+                            barrierDismissible: false,
+                            builder: (context) => AlertDialog(
+                              title: const Text('編み目設定の変更'),
+                              content: const Text('編み目設定の変更を保存しますか？'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () {
+                                    print('編み目設定の変更を保存しない');
+                                    Navigator.of(context).pop(false);
+                                  },
+                                  child: const Text('保存しない'),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    print('編み目設定の変更を保存');
+                                    Navigator.of(context).pop(true);
+                                  },
+                                  child: const Text('保存'),
+                                ),
+                              ],
+                            ),
+                          );
 
-                        if (result == true) {
-                          print('編み目設定の変更を保存します');
+                          if (result == true) {
+                            print('編み目設定の変更を保存します');
 
-                          try {
-                            // グローバル編み目設定を取得
-                            final globalStitches =
-                                await StitchSettingsService.getGlobalStitches();
+                            try {
+                              // グローバル編み目設定を取得
+                              final globalStitches = await StitchSettingsService
+                                  .getGlobalStitches();
 
-                            print('取得したグローバル編み目設定: ${globalStitches.length}個');
+                              print(
+                                  '取得したグローバル編み目設定: ${globalStitches.length}個');
 
-                            // プロジェクトの編み目設定を更新
-                            if (widget.project != null) {
-                              final updatedProject = widget.project!.copyWith(
-                                customStitches: globalStitches,
-                                updatedAt: DateTime.now(),
+                              // プロジェクトの編み目設定を更新
+                              if (widget.project != null) {
+                                final updatedProject = widget.project!.copyWith(
+                                  customStitches: globalStitches,
+                                  updatedAt: DateTime.now(),
+                                );
+
+                                // 更新されたプロジェクトを保存
+                                final isPremium = context
+                                    .read<SubscriptionProvider>()
+                                    .isPremium;
+                                await _storageService.saveProject(
+                                    updatedProject,
+                                    isPremium: isPremium);
+                                print('プロジェクトの編み目設定を更新しました');
+
+                                // ローカルのプロジェクト編み目設定も更新
+                                setState(() {
+                                  _projectCustomStitches =
+                                      List.from(globalStitches);
+                                });
+                              } else {
+                                // 新規プロジェクトの場合
+                                setState(() {
+                                  _projectCustomStitches =
+                                      List.from(globalStitches);
+                                });
+                              }
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('編み目設定を保存しました'),
+                                  backgroundColor: Colors.green,
+                                ),
                               );
 
-                              // 更新されたプロジェクトを保存
-                              final isPremium = context
-                                  .read<SubscriptionProvider>()
-                                  .isPremium;
-                              await _storageService.saveProject(updatedProject,
-                                  isPremium: isPremium);
-                              print('プロジェクトの編み目設定を更新しました');
-
-                              // ローカルのプロジェクト編み目設定も更新
-                              setState(() {
-                                _projectCustomStitches =
-                                    List.from(globalStitches);
-                              });
-                            } else {
-                              // 新規プロジェクトの場合
-                              setState(() {
-                                _projectCustomStitches =
-                                    List.from(globalStitches);
-                              });
+                              print('編み目設定の保存が完了しました');
+                            } catch (e) {
+                              print('編み目設定保存エラー: $e');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('編み目設定の保存に失敗しました: $e'),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
                             }
-
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('編み目設定を保存しました'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-
-                            print('編み目設定の保存が完了しました');
-                          } catch (e) {
-                            print('編み目設定保存エラー: $e');
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('編み目設定の保存に失敗しました: $e'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
+                          } else {
+                            print('編み目設定の変更を保存しません');
+                            // 保存しない場合は編み目設定を再読み込み
+                            await _reloadProjectCustomStitches();
                           }
-                        } else {
-                          print('編み目設定の変更を保存しません');
-                          // 保存しない場合は編み目設定を再読み込み
-                          setState(() {
-                            // 編み目ボタンを強制的に再構築
-                          });
+                        } catch (e) {
+                          print('編み目設定変更処理エラー: $e');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('編み目設定の処理中にエラーが発生しました: $e'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
                         }
                       },
                     ),

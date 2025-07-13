@@ -505,6 +505,10 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       final success = await StitchSettingsService.saveGlobalStitches(_stitches);
       if (success) {
         print('グローバル編み目設定を保存しました');
+        // 保存成功後にUIを強制的に更新
+        if (mounted) {
+          setState(() {});
+        }
       } else {
         print('グローバル編み目設定の保存に失敗しました');
       }

@@ -169,8 +169,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   updatedAt: DateTime.now(),
                 );
 
-                final success =
-                    await _storageService.saveProject(updatedProject);
+                final isPremium =
+                    context.read<SubscriptionProvider>().isPremium;
+                final success = await _storageService
+                    .saveProject(updatedProject, isPremium: isPremium);
                 if (success) {
                   _loadProjects();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -474,8 +476,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   updatedAt: DateTime.now(),
                 );
 
-                final success =
-                    await _storageService.saveProject(updatedProject);
+                final isPremium =
+                    context.read<SubscriptionProvider>().isPremium;
+                final success = await _storageService
+                    .saveProject(updatedProject, isPremium: isPremium);
                 if (success) {
                   _loadProjects();
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -606,6 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
     print('=== HomeScreen build開始 ===');
     print('_isLoading: $_isLoading');
     print('_projects.length: ${_projects.length}');
+    print('プレミアム状態: ${context.read<SubscriptionProvider>().isPremium}');
 
     return Scaffold(
       backgroundColor: const Color(0xFFFCE4EC),

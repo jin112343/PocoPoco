@@ -26,8 +26,6 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   late Animation<Offset> _slideAnimation;
 
   static const List<String> _kProductIds = <String>[
-    'android.test.purchased', // テスト用 - 購入成功
-    'android.test.canceled', // テスト用 - 購入キャンセル
     'monthly_sub', // 月額サブスクリプション
     'yearly_sub', // 年間サブスクリプション
   ];
@@ -201,11 +199,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     final PurchaseParam purchaseParam = PurchaseParam(productDetails: product);
 
     try {
-      if (product.id == 'android.test.purchased' ||
-          product.id == 'android.test.canceled') {
-        // テスト用商品
-        _iap.buyNonConsumable(purchaseParam: purchaseParam);
-      } else if (product.id == 'monthly_sub' || product.id == 'yearly_sub') {
+      if (product.id == 'monthly_sub' || product.id == 'yearly_sub') {
         // サブスクリプション商品
         _iap.buyNonConsumable(purchaseParam: purchaseParam);
       } else {
@@ -235,7 +229,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
               borderRadius: BorderRadius.circular(20),
             ),
             child: Icon(
-              IconData(int.parse(icon), fontFamily: 'MaterialIcons'),
+              Icons.check_circle,
               color: const Color(0xFFEC407A),
               size: 20,
             ),

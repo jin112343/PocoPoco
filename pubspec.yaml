@@ -3,7 +3,7 @@ description: シンプルなかぎ針編みカウンターアプリ
 
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
@@ -14,7 +14,7 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.2
   logger: ^2.0.2+1
-  google_mobile_ads: ^4.0.0
+  google_mobile_ads: ^6.0.0
   shared_preferences: ^2.2.2
   in_app_review: ^2.0.8
   url_launcher: ^6.2.5
