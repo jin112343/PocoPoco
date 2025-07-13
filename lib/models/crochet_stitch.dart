@@ -55,4 +55,28 @@ class CustomStitch {
   String get name {
     return nameEn;
   }
+
+  // JSON変換用メソッド
+  Map<String, dynamic> toJson() {
+    return {
+      'type': 'custom',
+      'name': nameEn,
+      'nameJa': nameJa,
+      'nameEn': nameEn,
+      'imagePath': imagePath ?? '',
+      'color': color.value,
+      'isOval': isOval,
+    };
+  }
+
+  // JSONから復元用メソッド
+  factory CustomStitch.fromJson(Map<String, dynamic> json) {
+    return CustomStitch(
+      nameJa: json['nameJa'] as String? ?? json['name'] as String,
+      nameEn: json['nameEn'] as String? ?? json['name'] as String,
+      imagePath: json['imagePath'] as String?,
+      color: Color(json['color'] as int),
+      isOval: json['isOval'] as bool? ?? false,
+    );
+  }
 }

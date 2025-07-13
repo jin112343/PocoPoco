@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/crochet_stitch.dart';
 import '../screens/stitch_customization_screen.dart';
+import '../screens/upgrade_screen.dart';
 import '../services/stitch_settings_service.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
@@ -14,6 +15,7 @@ class StitchPatternGrid extends StatefulWidget {
     required this.onStitchAdded,
     this.projectStitches, // プロジェクト固有の編み目設定
     this.onStitchSettingsChanged, // 編み目設定が変更された時のコールバック
+    this.onProjectStitchesChanged, // プロジェクト固有の編み目設定が変更された時のコールバック
   });
 
   final CrochetStitch selectedStitch;
@@ -21,6 +23,8 @@ class StitchPatternGrid extends StatefulWidget {
   final Function(dynamic) onStitchAdded;
   final List<dynamic>? projectStitches; // プロジェクト固有の編み目設定
   final VoidCallback? onStitchSettingsChanged; // 編み目設定が変更された時のコールバック
+  final Function(List<dynamic>)?
+      onProjectStitchesChanged; // プロジェクト固有の編み目設定が変更された時のコールバック
 
   @override
   State<StitchPatternGrid> createState() => _StitchPatternGridState();
@@ -81,6 +85,16 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       }
     }
 
+    // キーの変更もチェック
+    if (widget.key != oldWidget.key) {
+      shouldReload = true;
+      print('StitchPatternGrid: キーが変更されました');
+    }
+
+    // 常に再読み込みを実行（確実に反映させるため）
+    shouldReload = true;
+    print('StitchPatternGrid: 編み目設定を再読み込みします');
+
     if (shouldReload) {
       print('StitchPatternGrid: 編み目設定を再読み込みします');
       _loadStitches();
@@ -91,6 +105,11 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _checkPremiumStatusChange();
+
+    // 依存関係が変更された時に編み目設定を再読み込み
+    if (_stitches.isEmpty && !_isLoading) {
+      _loadStitches();
+    }
   }
 
   void _checkPremiumStatusChange() {
@@ -110,21 +129,32 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     print('StitchPatternGrid: _loadStitches called');
 
     try {
-      // プロジェクト固有の編み目設定がある場合はそれを使用、なければグローバル設定を使用
+      // プロジェクト固有の編み目設定がある場合はそれを使用、なければ基本6つの編み目を使用
       if (widget.projectStitches != null &&
           widget.projectStitches!.isNotEmpty) {
         _stitches = List.from(widget.projectStitches!);
         print('プロジェクト固有の編み目設定を使用: ${_stitches.length}個');
       } else {
-        _stitches = await StitchSettingsService.getGlobalStitches();
-        print('グローバル編み目設定を使用: ${_stitches.length}個');
+        // プロジェクト固有の編み目設定がない場合は基本6つの編み目を使用
+        _stitches = StitchSettingsService.getDefaultStitches();
+        print('基本編み目設定を使用: ${_stitches.length}個');
+      }
+
+      // 編み目リストが空の場合はデフォルト設定を使用
+      if (_stitches.isEmpty) {
+        print('編み目リストが空のため、デフォルト設定を使用します');
+        _stitches = StitchSettingsService.getDefaultStitches();
       }
 
       // 編み目リストの内容をログ出力
       print('読み込まれた編み目リスト:');
       for (int i = 0; i < _stitches.length; i++) {
         final stitch = _stitches[i];
-        print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
+        try {
+          print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
+        } catch (e) {
+          print('  $i: エラーで名前を取得できませんでした (${stitch.runtimeType}): $e');
+        }
       }
 
       // UIを更新
@@ -132,6 +162,13 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         setState(() {
           _isLoading = false;
         });
+
+        // 少し待ってから再度更新（確実に反映させるため）
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (mounted) {
+          setState(() {});
+          print('StitchPatternGrid: UI更新完了、編み目数: ${_stitches.length}');
+        }
       }
     } catch (e) {
       print('編み目設定読み込みエラー: $e');
@@ -141,33 +178,41 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         setState(() {
           _isLoading = false;
         });
+        print('StitchPatternGrid: エラー後のデフォルト設定使用、編み目数: ${_stitches.length}');
       }
     }
   }
 
   String _getStitchName(dynamic stitch) {
-    final locale = context.locale.languageCode;
-    String result;
+    try {
+      final locale = context.locale.languageCode;
+      String result;
 
-    if (stitch is CrochetStitch) {
-      result = locale == 'ja' ? stitch.nameJa : stitch.nameEn;
-    } else if (stitch is CustomStitch) {
-      // CustomStitchの場合はgetNameメソッドを使用
-      result = stitch.getName(context);
-    } else if (stitch is Map<String, String>) {
-      result = locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
-    } else {
-      result = 'Unknown';
+      if (stitch is CrochetStitch) {
+        result = locale == 'ja' ? stitch.nameJa : stitch.nameEn;
+      } else if (stitch is CustomStitch) {
+        // CustomStitchの場合はgetNameメソッドを使用
+        result = stitch.getName(context);
+      } else if (stitch is Map<String, String>) {
+        result = locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+      } else {
+        result = 'Unknown';
+      }
+      print(
+          'StitchPatternGrid: _getStitchName - stitch: ${stitch.runtimeType}, result: $result, nameJa: ${stitch is CustomStitch ? stitch.nameJa : ''}, nameEn: ${stitch is CustomStitch ? stitch.nameEn : ''}, locale: $locale');
+      return result;
+    } catch (e) {
+      print('StitchPatternGrid: _getStitchName error: $e');
+      return 'Unknown';
     }
-    print(
-        'StitchPatternGrid: _getStitchName - stitch: ${stitch.runtimeType}, result: $result, nameJa: ${stitch is CustomStitch ? stitch.nameJa : ''}, nameEn: ${stitch is CustomStitch ? stitch.nameEn : ''}, locale: $locale');
-    return result;
   }
 
   @override
   Widget build(BuildContext context) {
     print(
         'StitchPatternGrid: build called, _stitches.length = ${_stitches.length}');
+    print(
+        'StitchPatternGrid: projectStitches.length = ${widget.projectStitches?.length}');
     print('StitchPatternGrid: 現在の編み目リスト:');
     for (int i = 0; i < _stitches.length; i++) {
       final stitch = _stitches[i];
@@ -187,13 +232,64 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          '編み方を選択（タップで追加）',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: Colors.black87,
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              '編み方を選択（タップで追加）',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+            // 編み目カスタマイズボタン
+            IconButton(
+              icon: const Icon(Icons.edit, size: 20),
+              onPressed: () async {
+                final isPremium =
+                    context.read<SubscriptionProvider>().isPremium;
+
+                if (isPremium) {
+                  print('編み目カスタマイズ画面を開きます');
+
+                  final result = await Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => StitchCustomizationScreen(
+                        projectStitches: widget.projectStitches,
+                        onProjectStitchesChanged:
+                            widget.onProjectStitchesChanged,
+                      ),
+                    ),
+                  );
+
+                  if (result == true) {
+                    // 編み目設定が変更された場合
+                    print('StitchPatternGrid: 編み目設定が変更されました');
+
+                    // 少し待ってから再読み込み（保存処理の完了を待つ）
+                    await Future.delayed(const Duration(milliseconds: 500));
+
+                    // 編み目カスタマイズ画面から戻ってきたら再読み込み
+                    print('StitchPatternGrid: 編み目設定を再読み込み中...');
+                    await _loadStitches();
+                    print('StitchPatternGrid: 編み目設定の再読み込み完了');
+
+                    // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
+                    // widget.onStitchSettingsChanged?.call();
+                  }
+                } else {
+                  // 無料プランの場合はアップグレード画面に遷移
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const UpgradeScreen(),
+                    ),
+                  );
+                }
+              },
+              tooltip: '編み目をカスタマイズ',
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         Container(
@@ -237,42 +333,34 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                 widget.onStitchAdded(stitch);
                               },
                               onLongPress: () async {
+                                print('編み目ボタンが長押しされました。編み目カスタマイズ画面を開きます');
+
                                 final result = await Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (context) =>
                                         StitchCustomizationScreen(
                                       projectStitches: widget.projectStitches,
-                                      onProjectStitchesChanged: (newStitches) {
-                                        // プロジェクト固有の編み目設定が変更された場合の処理
-                                        print(
-                                            'StitchPatternGrid: プロジェクト固有の編み目設定が変更されました');
-                                        // 少し待ってからコールバックを呼び出し
-                                        Future.delayed(
-                                            const Duration(milliseconds: 100),
-                                            () {
-                                          widget.onStitchSettingsChanged
-                                              ?.call();
-                                        });
-                                      },
+                                      onProjectStitchesChanged:
+                                          widget.onProjectStitchesChanged,
                                     ),
                                   ),
                                 );
 
                                 if (result == true) {
                                   // 編み目設定が変更された場合
-                                  print('編み目設定が変更されました');
+                                  print('StitchPatternGrid: 編み目設定が変更されました');
 
                                   // 少し待ってから再読み込み（保存処理の完了を待つ）
                                   await Future.delayed(
-                                      const Duration(milliseconds: 200));
+                                      const Duration(milliseconds: 500));
 
                                   // 編み目カスタマイズ画面から戻ってきたら再読み込み
                                   print('StitchPatternGrid: 編み目設定を再読み込み中...');
                                   await _loadStitches();
                                   print('StitchPatternGrid: 編み目設定の再読み込み完了');
 
-                                  // 編み目設定が変更されたことを通知
-                                  widget.onStitchSettingsChanged?.call();
+                                  // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
+                                  // widget.onStitchSettingsChanged?.call();
                                 }
                               },
                               child: Container(
@@ -370,41 +458,47 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                               widget.onStitchAdded(stitch);
                             },
                             onLongPress: () async {
-                              final result = await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      StitchCustomizationScreen(
-                                    projectStitches: widget.projectStitches,
-                                    onProjectStitchesChanged: (newStitches) {
-                                      // プロジェクト固有の編み目設定が変更された場合の処理
-                                      print(
-                                          'StitchPatternGrid: プロジェクト固有の編み目設定が変更されました');
-                                      // 少し待ってからコールバックを呼び出し
-                                      Future.delayed(
-                                          const Duration(milliseconds: 100),
-                                          () {
-                                        widget.onStitchSettingsChanged?.call();
-                                      });
-                                    },
+                              final isPremium = context
+                                  .read<SubscriptionProvider>()
+                                  .isPremium;
+
+                              if (isPremium) {
+                                print('編み目ボタンが長押しされました。編み目カスタマイズ画面を開きます');
+
+                                final result = await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        StitchCustomizationScreen(
+                                      projectStitches: widget.projectStitches,
+                                      onProjectStitchesChanged:
+                                          widget.onProjectStitchesChanged,
+                                    ),
                                   ),
-                                ),
-                              );
+                                );
 
-                              if (result == true) {
-                                // 編み目設定が変更された場合
-                                print('編み目設定が変更されました');
+                                if (result == true) {
+                                  // 編み目設定が変更された場合
+                                  print('StitchPatternGrid: 編み目設定が変更されました');
 
-                                // 少し待ってから再読み込み（保存処理の完了を待つ）
-                                await Future.delayed(
-                                    const Duration(milliseconds: 200));
+                                  // 少し待ってから再読み込み（保存処理の完了を待つ）
+                                  await Future.delayed(
+                                      const Duration(milliseconds: 500));
 
-                                // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                                print('StitchPatternGrid: 編み目設定を再読み込み中...');
-                                await _loadStitches();
-                                print('StitchPatternGrid: 編み目設定の再読み込み完了');
+                                  // 編み目カスタマイズ画面から戻ってきたら再読み込み
+                                  print('StitchPatternGrid: 編み目設定を再読み込み中...');
+                                  await _loadStitches();
+                                  print('StitchPatternGrid: 編み目設定の再読み込み完了');
 
-                                // 編み目設定が変更されたことを通知
-                                widget.onStitchSettingsChanged?.call();
+                                  // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
+                                  // widget.onStitchSettingsChanged?.call();
+                                }
+                              } else {
+                                // 無料プランの場合はアップグレード画面に遷移
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (context) => const UpgradeScreen(),
+                                  ),
+                                );
                               }
                             },
                             child: Container(

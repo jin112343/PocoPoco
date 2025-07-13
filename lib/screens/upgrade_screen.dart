@@ -3,6 +3,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
+import 'home_screen.dart';
 
 class UpgradeScreen extends StatefulWidget {
   const UpgradeScreen({super.key});
@@ -161,6 +162,17 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                 backgroundColor: Colors.green,
               ),
             );
+
+            // 少し待ってからホーム画面に戻り、UIを更新
+            await Future.delayed(const Duration(milliseconds: 500));
+            if (mounted) {
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  builder: (context) => const HomeScreen(),
+                ),
+                (route) => false,
+              );
+            }
           }
         }
 

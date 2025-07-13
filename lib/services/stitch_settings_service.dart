@@ -110,15 +110,19 @@ class StitchSettingsService {
       }).toList();
 
       print('グローバル編み目設定取得: ${stitches.length}個');
-      print('取得した編み目リスト:');
+      print('取得した編み目リスト（詳細）:');
       for (int i = 0; i < stitches.length; i++) {
         final stitch = stitches[i];
         if (stitch is CrochetStitch) {
           print(
               '  $i: ${(stitch as CrochetStitch).name} (${stitch.runtimeType})');
+          print('     日本語名: ${(stitch as CrochetStitch).nameJa}');
+          print('     英語名: ${(stitch as CrochetStitch).nameEn}');
         } else if (stitch is CustomStitch) {
           print(
               '  $i: ${(stitch as CustomStitch).name} (${stitch.runtimeType})');
+          print('     日本語名: ${(stitch as CustomStitch).nameJa}');
+          print('     英語名: ${(stitch as CustomStitch).nameEn}');
         } else {
           print('  $i: 不明な型 (${stitch.runtimeType})');
         }

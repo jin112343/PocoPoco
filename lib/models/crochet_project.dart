@@ -54,23 +54,32 @@ class CrochetProject {
       'backgroundColor': backgroundColor,
       'customStitches': customStitches
           .map((stitch) {
-            if (stitch is CrochetStitch) {
+            try {
+              if (stitch is CrochetStitch) {
+                return {
+                  'type': 'enum',
+                  'name': stitch.name,
+                };
+              } else if (stitch is CustomStitch) {
+                // CustomStitchのtoJsonメソッドを使用
+                return stitch.toJson();
+              } else {
+                print('不明な編み目タイプ: ${stitch.runtimeType}');
+                // 不明な型の場合はデフォルトのCrochetStitchとして扱う
+                return {
+                  'type': 'enum',
+                  'name': 'singleCrochet',
+                };
+              }
+            } catch (e) {
+              print('編み目JSON変換エラー: $e');
+              print('エラーが発生した編み目の型: ${stitch.runtimeType}');
+              // エラーが発生した場合はデフォルトのCrochetStitchとして扱う
               return {
                 'type': 'enum',
-                'name': stitch.name,
-              };
-            } else if (stitch is CustomStitch) {
-              return {
-                'type': 'custom',
-                'name': stitch.name,
-                'nameJa': stitch.nameJa,
-                'nameEn': stitch.nameEn,
-                'imagePath': stitch.imagePath,
-                'color': stitch.color.value,
-                'isOval': stitch.isOval,
+                'name': 'singleCrochet',
               };
             }
-            return null;
           })
           .where((item) => item != null)
           .toList(),
@@ -150,15 +159,8 @@ class CrochetProject {
             return CrochetStitch.singleCrochet;
           }
         } else if (stitchData['type'] == 'custom') {
-          return CustomStitch(
-            nameJa:
-                stitchData['nameJa'] as String? ?? stitchData['name'] as String,
-            nameEn:
-                stitchData['nameEn'] as String? ?? stitchData['name'] as String,
-            imagePath: stitchData['imagePath'] as String?,
-            color: Color(stitchData['color'] as int),
-            isOval: stitchData['isOval'] as bool? ?? false,
-          );
+          // CustomStitch.fromJsonメソッドを使用
+          return CustomStitch.fromJson(stitchData);
         }
         return CrochetStitch.singleCrochet; // デフォルト
       }).toList(),

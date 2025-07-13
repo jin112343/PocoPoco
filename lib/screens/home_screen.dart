@@ -4,6 +4,7 @@ import '../models/crochet_project.dart';
 import '../services/storage_service.dart';
 import 'crochet_counter_screen.dart';
 import 'settings_screen.dart';
+import 'upgrade_screen.dart';
 import '../services/subscription_provider.dart';
 import 'package:easy_localization/easy_localization.dart';
 
@@ -23,6 +24,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _loadProjects();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // プレミアム状態の変更を監視
+    final isPremium = context.watch<SubscriptionProvider>().isPremium;
+    print('HomeScreen: プレミアム状態: $isPremium');
   }
 
   Future<void> _loadProjects() async {
@@ -51,7 +60,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _createNewProject() {
     final isPremium = context.read<SubscriptionProvider>().isPremium;
+    print(
+        'HomeScreen: 新規プロジェクト作成 - isPremium: $isPremium, 現在のプロジェクト数: ${_projects.length}');
+
     if (!isPremium && _projects.length >= 3) {
+      print('HomeScreen: 保存制限に達しました（無料プラン）');
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -60,13 +73,26 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const UpgradeScreen(),
+                  ),
+                );
+              },
+              child: const Text('アップグレード'),
             ),
           ],
         ),
       );
       return;
     }
+
+    print('HomeScreen: 新規プロジェクト作成画面を開きます');
     Navigator.of(context)
         .push(
       MaterialPageRoute(

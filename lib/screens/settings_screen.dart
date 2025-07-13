@@ -8,10 +8,19 @@ import 'upgrade_screen.dart';
 import 'home_screen.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
+import '../services/storage_service.dart';
 import 'package:easy_localization/easy_localization.dart';
+import '../models/crochet_project.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  final bool isFromProject;
+  final CrochetProject? currentProject;
+
+  const SettingsScreen({
+    super.key,
+    this.isFromProject = false,
+    this.currentProject,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -49,25 +58,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
-            // 編み目設定が変更された場合は結果を返してからホーム画面に遷移
-            if (_stitchSettingsChanged) {
-              // まず結果を返す
-              Navigator.of(context).pop(true);
-              // 少し待ってからホーム画面に遷移
-              Future.delayed(const Duration(milliseconds: 100), () {
-                if (context.mounted) {
-                  Navigator.pushAndRemoveUntil(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const HomeScreen(),
-                    ),
-                    (route) => false,
-                  );
-                }
-              });
-            } else {
-              Navigator.pop(context);
-            }
+            // 編み目設定が変更された場合でもホーム画面には戻らない
+            Navigator.pop(context);
           },
         ),
       ),
@@ -122,41 +114,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 32),
+          // テスト用サブスク有効ボタン
           ListTile(
-            leading: const Icon(Icons.edit),
-            title: Text(tr('edit_stitch_buttons')),
-            subtitle: Text(tr('edit_stitch_buttons_desc')),
-            enabled: context.watch<SubscriptionProvider>().isPremium,
-            onTap: () async {
-              final isPremium = context.read<SubscriptionProvider>().isPremium;
-              if (isPremium) {
-                final result = await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const StitchCustomizationScreen(),
-                  ),
-                );
+            leading: const Icon(Icons.bug_report, color: Colors.orange),
+            title: const Text('テスト用: サブスク有効'),
+            subtitle: const Text('開発・テスト用のサブスク有効化ボタン'),
+            onTap: () {
+              final subscriptionProvider = context.read<SubscriptionProvider>();
+              subscriptionProvider.setPremium(
+                true,
+                subscriptionId: 'test_subscription',
+                expiryDate: DateTime.now().add(const Duration(days: 365)),
+              );
 
-                // 編み目設定が変更された場合
-                if (result == true) {
-                  setState(() {
-                    _stitchSettingsChanged = true;
-                  });
-                }
-              } else {
-                showDialog(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: Text(tr('premium_only')),
-                    content: Text(tr('premium_only_message')),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: Text(tr('ok')),
-                      ),
-                    ],
-                  ),
-                );
-              }
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('テスト用サブスクを有効にしました'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            },
+          ),
+          // テスト用サブスク無効ボタン
+          ListTile(
+            leading: const Icon(Icons.bug_report, color: Colors.red),
+            title: const Text('テスト用: サブスク無効'),
+            subtitle: const Text('開発・テスト用のサブスク無効化ボタン'),
+            onTap: () {
+              final subscriptionProvider = context.read<SubscriptionProvider>();
+              subscriptionProvider.setPremium(false);
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('テスト用サブスクを無効にしました'),
+                  backgroundColor: Colors.orange,
+                ),
+              );
             },
           ),
           ListTile(

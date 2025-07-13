@@ -10,7 +10,14 @@ class SubscriptionProvider extends ChangeNotifier {
   static const String _subscriptionIdKey = 'subscription_id';
   static const String _expiryDateKey = 'subscription_expiry';
 
-  bool get isPremium => _isPremium;
+  bool get isPremium {
+    print('=== SubscriptionProvider.isPremium called ===');
+    print('_isPremium: $_isPremium');
+    print('_activeSubscriptionId: $_activeSubscriptionId');
+    print('_subscriptionExpiryDate: $_subscriptionExpiryDate');
+    return _isPremium;
+  }
+
   String? get activeSubscriptionId => _activeSubscriptionId;
   DateTime? get subscriptionExpiryDate => _subscriptionExpiryDate;
 
@@ -46,19 +53,34 @@ class SubscriptionProvider extends ChangeNotifier {
   // サブスクリプション状態の永続化・復元
   Future<void> loadStatus() async {
     try {
+      print('=== SubscriptionProvider.loadStatus 開始 ===');
       final prefs = await SharedPreferences.getInstance();
-      _isPremium = prefs.getBool(_premiumKey) ?? false;
+
+      final savedPremium = prefs.getBool(_premiumKey);
+      print('SharedPreferencesから読み込んだプレミアム状態: $savedPremium');
+
+      _isPremium = savedPremium ?? false;
       _activeSubscriptionId = prefs.getString(_subscriptionIdKey);
       final expiryString = prefs.getString(_expiryDateKey);
+
+      print('読み込まれた値:');
+      print('  _isPremium: $_isPremium');
+      print('  _activeSubscriptionId: $_activeSubscriptionId');
+      print('  expiryString: $expiryString');
+
       if (expiryString != null) {
         _subscriptionExpiryDate = DateTime.parse(expiryString);
+        print('  _subscriptionExpiryDate: $_subscriptionExpiryDate');
       }
 
       // 有効期限をチェック
+      print('有効期限チェック開始');
       await _checkSubscriptionValidity();
 
-      print(
-          'プレミアム状態を復元: $_isPremium, サブスクID: $_activeSubscriptionId, 有効期限: $_subscriptionExpiryDate');
+      print('=== プレミアム状態復元完了 ===');
+      print('最終的なプレミアム状態: $_isPremium');
+      print('サブスクID: $_activeSubscriptionId');
+      print('有効期限: $_subscriptionExpiryDate');
       notifyListeners();
     } catch (e) {
       print('プレミアム状態の復元エラー: $e');

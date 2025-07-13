@@ -9,6 +9,7 @@ class StitchHistorySection extends StatefulWidget {
     required this.currentStitches,
     this.onRowTap,
     this.onRowCompleted,
+    this.onStitchRemoved,
     this.currentRow,
     this.currentStitchCount,
   });
@@ -17,6 +18,7 @@ class StitchHistorySection extends StatefulWidget {
   final List<dynamic> currentStitches;
   final Function(int)? onRowTap;
   final Function(int)? onRowCompleted;
+  final Function(int)? onStitchRemoved; // 編み目削除コールバック
   final int? currentRow;
   final int? currentStitchCount;
 
@@ -260,152 +262,195 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
 
       // 段のヘッダー＋編み目を縦並び
       items.add(
-        Container(
-          key: _rowKeys[row],
-          margin: const EdgeInsets.only(bottom: 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              GestureDetector(
-                onTap: () {
-                  scrollToRow(row);
-                  if (widget.onRowTap != null) {
-                    widget.onRowTap!(row);
-                  }
-                },
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8BBD9),
-                    borderRadius: BorderRadius.circular(16),
+        Dismissible(
+          key: ValueKey('row_$row'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: Colors.red,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            child: const Icon(
+              Icons.delete,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+          confirmDismiss: (direction) async {
+            return await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('段を削除'),
+                content: Text('$row段目を削除しますか？\nこの段の編み目がすべて削除されます。'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('キャンセル'),
                   ),
-                  child: Text(
-                    '$row段',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: const Color(0xFFAD1457),
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child:
+                        const Text('削除', style: TextStyle(color: Colors.red)),
+                  ),
+                ],
+              ),
+            );
+          },
+          onDismissed: (direction) {
+            if (widget.onStitchRemoved != null) {
+              widget.onStitchRemoved!(row);
+            }
+          },
+          child: Container(
+            key: _rowKeys[row],
+            margin: const EdgeInsets.only(bottom: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                GestureDetector(
+                  onTap: () {
+                    scrollToRow(row);
+                    if (widget.onRowTap != null) {
+                      widget.onRowTap!(row);
+                    }
+                  },
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8BBD9),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      '$row段',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFFAD1457),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              // この段の編み目を横スクロール可能に表示
-              if (rowStitches.any((stitch) => stitch['position'] != 0))
-                SizedBox(
-                  height: 80, // 固定高さで横スクロール
-                  child: SingleChildScrollView(
-                    controller: _getHorizontalScrollController(row),
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: rowStitches
-                          .where((stitch) =>
-                              stitch['position'] != 0) // 段開始フラグの編み目を除外
-                          .map((stitchData) {
-                        final dynamic stitchObj = _findStitchInCurrentList(
-                            stitchData['stitch'], widget.currentStitches);
-                        final position = stitchData['position'] as int;
+                const SizedBox(height: 16),
+                // この段の編み目を横スクロール可能に表示
+                if (rowStitches.any((stitch) => stitch['position'] != 0))
+                  SizedBox(
+                    height: 80, // 固定高さで横スクロール
+                    child: SingleChildScrollView(
+                      controller: _getHorizontalScrollController(row),
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: rowStitches
+                            .where((stitch) =>
+                                stitch['position'] != 0) // 段開始フラグの編み目を除外
+                            .map((stitchData) {
+                          final dynamic stitchObj = _findStitchInCurrentList(
+                              stitchData['stitch'], widget.currentStitches);
+                          final position = stitchData['position'] as int;
 
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: (stitchObj is CrochetStitch ||
-                                            stitchObj is CustomStitch) &&
-                                        stitchObj.isOval
-                                    ? 56
-                                    : 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: (stitchObj is CrochetStitch ||
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 12),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: (stitchObj is CrochetStitch ||
                                               stitchObj is CustomStitch) &&
                                           stitchObj.isOval
-                                      ? BorderRadius.circular(24)
-                                      : BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: (stitchObj is CrochetStitch ||
-                                            stitchObj is CustomStitch)
-                                        ? stitchObj.color
-                                        : Colors.pink,
-                                    width: 3,
+                                      ? 56
+                                      : 48,
+                                  height: 48,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: (stitchObj is CrochetStitch ||
+                                                stitchObj is CustomStitch) &&
+                                            stitchObj.isOval
+                                        ? BorderRadius.circular(24)
+                                        : BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: (stitchObj is CrochetStitch ||
+                                              stitchObj is CustomStitch)
+                                          ? stitchObj.color
+                                          : Colors.pink,
+                                      width: 3,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: (stitchObj is CrochetStitch ||
+                                                stitchObj is CustomStitch) &&
+                                            stitchObj.imagePath != null
+                                        ? Image.asset(
+                                            stitchObj.imagePath!,
+                                            width: 32,
+                                            height: 32,
+                                            fit: BoxFit.contain,
+                                          )
+                                        : Text(
+                                            _getStitchName(stitchObj)
+                                                .substring(0, 1),
+                                            style: TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                              color: (stitchObj
+                                                          is CrochetStitch ||
+                                                      stitchObj is CustomStitch)
+                                                  ? stitchObj.color
+                                                  : Colors.pink,
+                                            ),
+                                          ),
                                   ),
                                 ),
-                                child: Center(
-                                  child: (stitchObj is CrochetStitch ||
-                                              stitchObj is CustomStitch) &&
-                                          stitchObj.imagePath != null
-                                      ? Image.asset(
-                                          stitchObj.imagePath!,
-                                          width: 32,
-                                          height: 32,
-                                          fit: BoxFit.contain,
-                                        )
-                                      : Text(
-                                          _getStitchName(stitchObj)
-                                              .substring(0, 1),
-                                          style: TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                            color: (stitchObj
-                                                        is CrochetStitch ||
-                                                    stitchObj is CustomStitch)
-                                                ? stitchObj.color
-                                                : Colors.pink,
-                                          ),
-                                        ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$position',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.grey,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '$position',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.grey,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  )
+                else
+                  // 空の段の場合の表示
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                          color: Colors.grey.withOpacity(0.3), width: 1),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.add_circle_outline,
+                          size: 24,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '編み目を追加してください',
+                          style: TextStyle(
+                            fontSize: 16,
+                            color: Colors.grey,
+                            fontStyle: FontStyle.italic,
                           ),
-                        );
-                      }).toList(),
+                        ),
+                      ],
                     ),
                   ),
-                )
-              else
-                // 空の段の場合の表示
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: Colors.grey.withOpacity(0.3), width: 1),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_circle_outline,
-                        size: 24,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '編み目を追加してください',
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       );

@@ -52,6 +52,10 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       // プレミアムから解約された場合
       print('StitchCustomizationScreen: プレミアム解約を検知しました');
       _resetToDefaultStitches();
+    } else if (wasPremium != null && !wasPremium && isPremium) {
+      // プレミアムにアップグレードされた場合
+      print('StitchCustomizationScreen: プレミアムアップグレードを検知しました');
+      _loadStitches(); // 編み目設定を再読み込み
     }
 
     _wasPremium = isPremium;
@@ -292,15 +296,18 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   Widget build(BuildContext context) {
     print(
         'StitchCustomizationScreen: build called, _stitches.length = ${_stitches.length}');
-    print('StitchCustomizationScreen: 現在の編み目リスト:');
+    print('StitchCustomizationScreen: 現在の編み目リスト（表示名付き）:');
     for (int i = 0; i < _stitches.length; i++) {
       final stitch = _stitches[i];
+      final displayName = _getStitchName(stitch);
       if (stitch is CrochetStitch) {
-        print('  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
+        print(
+            '  $i: ${(stitch as CrochetStitch).name} (CrochetStitch) -> 表示名: $displayName');
       } else if (stitch is CustomStitch) {
-        print('  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
+        print(
+            '  $i: ${(stitch as CustomStitch).name} (CustomStitch) -> 表示名: $displayName');
       } else {
-        print('  $i: 不明な型 (${stitch.runtimeType})');
+        print('  $i: 不明な型 (${stitch.runtimeType}) -> 表示名: $displayName');
       }
     }
 
@@ -313,15 +320,36 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
           onPressed: () async {
             print('StitchCustomizationScreen: 戻るボタンが押されました');
 
-            // プロジェクト固有の編み目設定がある場合は、それも更新する
+            // プロジェクト固有の編み目設定を保存
             if (widget.onProjectStitchesChanged != null) {
-              print('StitchCustomizationScreen: プロジェクト固有の編み目設定を更新します');
-              widget.onProjectStitchesChanged!(_stitches);
+              print('StitchCustomizationScreen: プロジェクト固有の編み目設定を保存します');
+              try {
+                await widget.onProjectStitchesChanged!(_stitches);
+                print('StitchCustomizationScreen: プロジェクト固有の編み目設定の保存完了');
+
+                // 保存完了を確認するためのログ
+                print('保存された編み目設定:');
+                for (int i = 0; i < _stitches.length; i++) {
+                  final stitch = _stitches[i];
+                  if (stitch is CrochetStitch) {
+                    print(
+                        '  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
+                  } else if (stitch is CustomStitch) {
+                    print(
+                        '  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
+                  } else {
+                    print('  $i: 不明な型 (${stitch.runtimeType})');
+                  }
+                }
+              } catch (e) {
+                print(
+                    'StitchCustomizationScreen: プロジェクト固有の編み目設定の保存に失敗しました: $e');
+              }
             }
 
-            // 最後の保存処理を待つ
-            await Future.delayed(const Duration(milliseconds: 100));
-            Navigator.of(context).pop(true); // 変更があったことを通知して戻る
+            print('StitchCustomizationScreen: 保存完了、画面を閉じます');
+            // 変更があったことを通知して戻る
+            Navigator.of(context).pop(true);
           },
         ),
         actions: [
@@ -333,152 +361,97 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       ),
       body: Column(
         children: [
-          // 編み目リスト（7つ以上ある場合はスクロール可能）
+          // 編み目リスト（スライド削除・並び替え機能付き）
           Expanded(
-            child: _stitches.length > 7
-                ? ReorderableListView.builder(
-                    itemCount: _stitches.length,
-                    itemBuilder: (context, index) {
-                      final stitch = _stitches[index];
-                      final isCustomStitch = stitch is CustomStitch;
-                      return Card(
-                        key: ValueKey(stitch),
-                        margin: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 4),
-                        child: ListTile(
-                          leading: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade300),
-                            ),
-                            child: Center(
-                              child: stitch.imagePath != null
-                                  ? Image.asset(
-                                      stitch.imagePath!,
-                                      width: 24,
-                                      height: 24,
-                                    )
-                                  : Text(
-                                      _getStitchName(stitch),
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                            ),
-                          ),
-                          title: Text(_getStitchName(stitch)),
-                          subtitle: Text(isCustomStitch
-                              ? tr('premium_stitch')
-                              : tr('basic_stitch')),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('編み目を削除'),
-                                  content: Text(
-                                      '「${_getStitchName(stitch)}」を削除しますか？'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(),
-                                      child: Text(tr('cancel')),
-                                    ),
-                                    TextButton(
-                                      onPressed: () {
-                                        Navigator.of(context).pop();
-                                        _removeStitch(index);
-                                      },
-                                      child: Text(tr('ok')),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      );
-                    },
-                    onReorder: (oldIndex, newIndex) async {
-                      setState(() {
-                        if (oldIndex < newIndex) {
-                          newIndex -= 1;
-                        }
-                        final item = _stitches.removeAt(oldIndex);
-                        _stitches.insert(newIndex, item);
-                      });
-                      await _saveGlobalStitches();
-                      // 変更は即座に保存するが、画面は閉じない
-                    },
-                  )
-                : ListView.builder(
-                    itemCount: _stitches.length,
-                    itemBuilder: (context, index) {
-                      final stitch = _stitches[index];
-                      final isCustomStitch = stitch is CustomStitch;
-                      return Card(
-                        key: ValueKey(stitch),
-                        margin: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 4),
-                        child: ListTile(
-                          leading: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.grey.shade300),
-                            ),
-                            child: Center(
-                              child: stitch.imagePath != null
-                                  ? Image.asset(
-                                      stitch.imagePath!,
-                                      width: 24,
-                                      height: 24,
-                                    )
-                                  : Text(
-                                      _getStitchName(stitch),
-                                      style: const TextStyle(fontSize: 16),
-                                    ),
-                            ),
-                          ),
-                          title: Text(_getStitchName(stitch)),
-                          subtitle: Text(isCustomStitch
-                              ? tr('premium_stitch')
-                              : tr('basic_stitch')),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (context) => AlertDialog(
-                                  title: const Text('編み目を削除'),
-                                  content: Text(
-                                      '「${_getStitchName(stitch)}」を削除しますか？'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () =>
-                                          Navigator.of(context).pop(),
-                                      child: Text(tr('cancel')),
-                                    ),
-                                    TextButton(
-                                      onPressed: () {
-                                        Navigator.of(context).pop();
-                                        _removeStitch(index);
-                                      },
-                                      child: Text(tr('ok')),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      );
-                    },
+            child: ReorderableListView.builder(
+              itemCount: _stitches.length,
+              itemBuilder: (context, index) {
+                final stitch = _stitches[index];
+                final isCustomStitch = stitch is CustomStitch;
+                return Dismissible(
+                  key: ValueKey(stitch),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.red,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    child: const Icon(
+                      Icons.delete,
+                      color: Colors.white,
+                      size: 30,
+                    ),
                   ),
+                  onDismissed: (direction) {
+                    _removeStitch(index);
+                  },
+                  child: Card(
+                    margin:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: ListTile(
+                      leading: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade300),
+                        ),
+                        child: Center(
+                          child: stitch.imagePath != null
+                              ? Image.asset(
+                                  stitch.imagePath!,
+                                  width: 24,
+                                  height: 24,
+                                )
+                              : Text(
+                                  _getStitchName(stitch),
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                        ),
+                      ),
+                      title: Text(_getStitchName(stitch)),
+                      subtitle: Text(isCustomStitch
+                          ? tr('premium_stitch')
+                          : tr('basic_stitch')),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 並び替え用のドラッグハンドル
+                          Icon(
+                            Icons.drag_handle,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(width: 8),
+                          // 削除ボタン
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () {
+                              _removeStitch(index);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+              onReorder: (oldIndex, newIndex) async {
+                setState(() {
+                  if (oldIndex < newIndex) {
+                    newIndex -= 1;
+                  }
+                  final item = _stitches.removeAt(oldIndex);
+                  _stitches.insert(newIndex, item);
+                });
+                await _saveGlobalStitches();
+                // 変更は即座に保存するが、画面は閉じない
+              },
+            ),
           ),
         ],
       ),
@@ -495,25 +468,70 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   Future<void> _saveGlobalStitches() async {
     try {
-      print('編み目設定を保存中...');
+      print('=== 編み目設定保存開始 ===');
       print('保存する編み目リスト:');
       for (int i = 0; i < _stitches.length; i++) {
         final stitch = _stitches[i];
         print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
       }
 
-      final success = await StitchSettingsService.saveGlobalStitches(_stitches);
-      if (success) {
-        print('グローバル編み目設定を保存しました');
-        // 保存成功後にUIを強制的に更新
-        if (mounted) {
-          setState(() {});
+      // プロジェクト固有の編み目設定がある場合は、プロジェクト固有の設定として保存
+      if (widget.projectStitches != null) {
+        print('プロジェクト固有の編み目設定として保存します');
+
+        // プロジェクト固有の編み目設定を更新
+        if (widget.onProjectStitchesChanged != null) {
+          print('プロジェクト固有の編み目設定を更新します');
+          try {
+            await widget.onProjectStitchesChanged!(_stitches);
+            print('✅ プロジェクト固有の編み目設定を保存しました');
+          } catch (e) {
+            print('❌ プロジェクト固有の編み目設定の保存に失敗しました: $e');
+          }
         }
       } else {
-        print('グローバル編み目設定の保存に失敗しました');
+        // グローバル設定として保存
+        print('グローバル編み目設定として保存します');
+        final success =
+            await StitchSettingsService.saveGlobalStitches(_stitches);
+        if (success) {
+          print('✅ グローバル編み目設定を保存しました');
+        } else {
+          print('❌ グローバル編み目設定の保存に失敗しました');
+        }
+      }
+
+      // 保存成功後にUIを強制的に更新
+      if (mounted) {
+        setState(() {});
+      }
+
+      // 保存後の確認用ログ
+      if (widget.projectStitches != null) {
+        print('保存後の確認 - プロジェクト固有の編み目数: ${_stitches.length}');
+        for (int i = 0; i < _stitches.length; i++) {
+          final stitch = _stitches[i];
+          print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
+        }
+      } else {
+        final savedStitches = await StitchSettingsService.getGlobalStitches();
+        print('保存後の確認 - 読み込まれた編み目数: ${savedStitches.length}');
+        for (int i = 0; i < savedStitches.length; i++) {
+          final stitch = savedStitches[i];
+          print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
+        }
+      }
+
+      // 少し待ってから再度確認
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (widget.projectStitches != null) {
+        print('最終確認 - プロジェクト固有の編み目数: ${_stitches.length}');
+      } else {
+        final finalCheck = await StitchSettingsService.getGlobalStitches();
+        print('最終確認 - 保存された編み目数: ${finalCheck.length}');
       }
     } catch (e) {
-      print('グローバル編み目設定保存エラー: $e');
+      print('❌ 編み目設定保存エラー: $e');
     }
   }
 
