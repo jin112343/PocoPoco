@@ -37,7 +37,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     _initAnimations();
     _initStoreInfo();
     _listenToPurchaseUpdated();
-    _restorePurchases();
+    _checkExistingSubscription();
   }
 
   void _initAnimations() {
@@ -163,15 +163,23 @@ class _UpgradeScreenState extends State<UpgradeScreen>
               ),
             );
 
-            // 少し待ってからホーム画面に戻り、UIを更新
-            await Future.delayed(const Duration(milliseconds: 500));
-            if (mounted) {
-              Navigator.of(context).pushAndRemoveUntil(
-                MaterialPageRoute(
-                  builder: (context) => const HomeScreen(),
-                ),
-                (route) => false,
-              );
+            // 新規購入の場合のみ画面を戻す（復元の場合は戻さない）
+            if (purchaseDetails.status == PurchaseStatus.purchased) {
+              // 少し待ってから前の画面に戻る
+              await Future.delayed(const Duration(milliseconds: 500));
+              if (mounted) {
+                // 設定画面から来た場合は設定画面に戻る、それ以外はホーム画面に戻る
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                } else {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (context) => const HomeScreen(),
+                    ),
+                    (route) => false,
+                  );
+                }
+              }
             }
           }
         }
@@ -846,6 +854,33 @@ class _UpgradeScreenState extends State<UpgradeScreen>
           );
         }
       }
+    }
+  }
+
+  // 既存のサブスクリプションを確認
+  Future<void> _checkExistingSubscription() async {
+    try {
+      print('既存のサブスクリプションを確認中...');
+      final subscriptionProvider = context.read<SubscriptionProvider>();
+
+      // 現在のプレミアム状態を確認
+      if (subscriptionProvider.isPremium) {
+        print('既にプレミアム状態です');
+        setState(() {
+          _activePlan = subscriptionProvider.activeSubscriptionId ?? 'unknown';
+          _loading = false;
+        });
+      } else {
+        print('プレミアム状態ではありません');
+        setState(() {
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      print('サブスクリプション確認エラー: $e');
+      setState(() {
+        _loading = false;
+      });
     }
   }
 }

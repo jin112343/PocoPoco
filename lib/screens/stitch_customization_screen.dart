@@ -26,6 +26,10 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   List<dynamic> _stitches = [];
   bool? _wasPremium; // 前回のプレミアム状態を記録
 
+  // 編み目選択用の状態管理
+  Set<CrochetStitch> _selectedBasicStitches = {};
+  Set<Map<String, String>> _selectedPremiumStitches = {};
+
   @override
   void initState() {
     super.initState();
@@ -536,6 +540,10 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   }
 
   void _showAddStitchDialog() {
+    // 選択状態をリセット
+    _selectedBasicStitches.clear();
+    _selectedPremiumStitches.clear();
+
     // 現在の編み目リストに含まれていない編み目を取得
     final currentStitchNames = _stitches.map((s) => _getStitchName(s)).toSet();
     final availableBasicStitches = CrochetStitch.values
@@ -547,185 +555,254 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr('edit_stitch_buttons')),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 400,
-          child: Column(
-            children: [
-              // 基本編み目セクション
-              if (availableBasicStitches.isNotEmpty) ...[
-                Text(
-                  '基本編み目',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.blue,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  flex: 1,
-                  child: GridView.builder(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                      childAspectRatio: 1,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text(tr('edit_stitch_buttons')),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 400,
+            child: Column(
+              children: [
+                // 基本編み目セクション
+                if (availableBasicStitches.isNotEmpty) ...[
+                  Text(
+                    '基本編み目',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
                     ),
-                    itemCount: availableBasicStitches.length,
-                    itemBuilder: (context, index) {
-                      final stitch = availableBasicStitches[index];
-                      return InkWell(
-                        onTap: () {
-                          _addBasicStitch(stitch);
-                          Navigator.of(context).pop(); // ダイアログのみ閉じる
-                        },
-                        child: Card(
-                          elevation: 2,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  child: stitch.imagePath != null
-                                      ? Image.asset(
-                                          stitch.imagePath!,
-                                          fit: BoxFit.contain,
-                                        )
-                                      : Text(
-                                          _getStitchName(stitch)
-                                              .substring(0, 1),
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                            color: stitch.color,
-                                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    flex: 1,
+                    child: GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        childAspectRatio: 1,
+                      ),
+                      itemCount: availableBasicStitches.length,
+                      itemBuilder: (context, index) {
+                        final stitch = availableBasicStitches[index];
+                        final isSelected =
+                            _selectedBasicStitches.contains(stitch);
+                        return InkWell(
+                          onTap: () {
+                            setDialogState(() {
+                              if (isSelected) {
+                                _selectedBasicStitches.remove(stitch);
+                              } else {
+                                _selectedBasicStitches.add(stitch);
+                              }
+                            });
+                          },
+                          child: Card(
+                            elevation: 2,
+                            color: isSelected ? Colors.blue.shade50 : null,
+                            child: Stack(
+                              children: [
+                                Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        child: stitch.imagePath != null
+                                            ? Image.asset(
+                                                stitch.imagePath!,
+                                                fit: BoxFit.contain,
+                                              )
+                                            : Text(
+                                                _getStitchName(stitch)
+                                                    .substring(0, 1),
+                                                style: TextStyle(
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: stitch.color,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Text(
+                                        _getStitchName(stitch),
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
                                         ),
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(4),
-                                child: Text(
-                                  _getStitchName(stitch),
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
+                                if (isSelected)
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                        Icons.check,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                    ),
                                   ),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-              // プレミアム編み目セクション
-              if (availablePremiumStitches.isNotEmpty) ...[
-                Text(
-                  tr('select_premium_stitch'),
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.pink,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  flex: 2,
-                  child: GridView.builder(
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 3,
-                      crossAxisSpacing: 8,
-                      mainAxisSpacing: 8,
-                      childAspectRatio: 1,
+                        );
+                      },
                     ),
-                    itemCount: availablePremiumStitches.length,
-                    itemBuilder: (context, index) {
-                      final stitch = availablePremiumStitches[index];
-                      return InkWell(
-                        onTap: () {
-                          _addPremiumStitch(stitch);
-                          Navigator.of(context).pop(); // ダイアログのみ閉じる
-                        },
-                        child: Card(
-                          elevation: 2,
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Expanded(
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  child: Image.asset(
-                                    stitch['image']!,
-                                    fit: BoxFit.contain,
-                                  ),
-                                ),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.all(4),
-                                child: Text(
-                                  _getStitchName(stitch),
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
                   ),
-                ),
-              ],
-              // 利用可能な編み目がない場合
-              if (availableBasicStitches.isEmpty &&
-                  availablePremiumStitches.isEmpty) ...[
-                const Expanded(
-                  child: Center(
-                    child: Text(
-                      '追加できる編み目がありません',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
+                  const SizedBox(height: 16),
+                ],
+                // プレミアム編み目セクション
+                if (availablePremiumStitches.isNotEmpty) ...[
+                  Text(
+                    tr('select_premium_stitch'),
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.pink,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    flex: 2,
+                    child: GridView.builder(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                        childAspectRatio: 1,
+                      ),
+                      itemCount: availablePremiumStitches.length,
+                      itemBuilder: (context, index) {
+                        final stitch = availablePremiumStitches[index];
+                        final isSelected =
+                            _selectedPremiumStitches.contains(stitch);
+                        return InkWell(
+                          onTap: () {
+                            setDialogState(() {
+                              if (isSelected) {
+                                _selectedPremiumStitches.remove(stitch);
+                              } else {
+                                _selectedPremiumStitches.add(stitch);
+                              }
+                            });
+                          },
+                          child: Card(
+                            elevation: 2,
+                            color: isSelected ? Colors.pink.shade50 : null,
+                            child: Stack(
+                              children: [
+                                Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Expanded(
+                                      child: Container(
+                                        padding: const EdgeInsets.all(8),
+                                        child: Image.asset(
+                                          stitch['image']!,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Text(
+                                        _getStitchName(stitch),
+                                        style: const TextStyle(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (isSelected)
+                                  Positioned(
+                                    top: 4,
+                                    right: 4,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.pink,
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      child: const Icon(
+                                        Icons.check,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                // 利用可能な編み目がない場合
+                if (availableBasicStitches.isEmpty &&
+                    availablePremiumStitches.isEmpty) ...[
+                  const Expanded(
+                    child: Center(
+                      child: Text(
+                        '追加できる編み目がありません',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.grey,
+                        ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(tr('cancel')),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                _addSelectedStitches();
+                Navigator.of(context).pop();
+              },
+              child: Text(
+                  '追加 (${_selectedBasicStitches.length + _selectedPremiumStitches.length})'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(tr('cancel')),
-          ),
-        ],
       ),
     );
   }
 
-  void _addBasicStitch(CrochetStitch stitch) async {
-    // 基本編み目は6つまで制限
-    final basicStitchesInList =
+  void _addSelectedStitches() async {
+    // 基本編み目の制限チェック
+    final currentBasicStitches =
         _stitches.where((s) => s is CrochetStitch).length;
-    if (basicStitchesInList >= 6) {
+    final newBasicStitches = _selectedBasicStitches.length;
+    if (currentBasicStitches + newBasicStitches > 6) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('基本編み目は6つまでしか追加できません'),
@@ -735,25 +812,21 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       return;
     }
 
-    setState(() {
+    // 選択された編み目を追加
+    for (var stitch in _selectedBasicStitches) {
       _stitches.add(stitch);
-    });
-    await _saveGlobalStitches();
-    // 変更は即座に保存するが、画面は閉じない
-  }
+    }
 
-  void _addPremiumStitch(Map<String, String> stitchData) async {
     // プレミアム編み目をカスタム編み目として追加
-    final customStitch = CustomStitch(
-      nameJa: stitchData['nameJa']!,
-      nameEn: stitchData['nameEn']!,
-      imagePath: stitchData['image'],
-    );
-
-    setState(() {
+    for (var stitchData in _selectedPremiumStitches) {
+      final customStitch = CustomStitch(
+        nameJa: stitchData['nameJa']!,
+        nameEn: stitchData['nameEn']!,
+        imagePath: stitchData['image'],
+      );
       _stitches.add(customStitch);
-    });
+    }
+
     await _saveGlobalStitches();
-    // 変更は即座に保存するが、画面は閉じない
   }
 }

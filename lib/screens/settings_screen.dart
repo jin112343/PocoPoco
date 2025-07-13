@@ -114,44 +114,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 32),
-          // テスト用サブスク有効ボタン
-          ListTile(
-            leading: const Icon(Icons.bug_report, color: Colors.orange),
-            title: const Text('テスト用: サブスク有効'),
-            subtitle: const Text('開発・テスト用のサブスク有効化ボタン'),
-            onTap: () {
-              final subscriptionProvider = context.read<SubscriptionProvider>();
-              subscriptionProvider.setPremium(
-                true,
-                subscriptionId: 'test_subscription',
-                expiryDate: DateTime.now().add(const Duration(days: 365)),
-              );
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('テスト用サブスクを有効にしました'),
-                  backgroundColor: Colors.green,
-                ),
-              );
-            },
-          ),
-          // テスト用サブスク無効ボタン
-          ListTile(
-            leading: const Icon(Icons.bug_report, color: Colors.red),
-            title: const Text('テスト用: サブスク無効'),
-            subtitle: const Text('開発・テスト用のサブスク無効化ボタン'),
-            onTap: () {
-              final subscriptionProvider = context.read<SubscriptionProvider>();
-              subscriptionProvider.setPremium(false);
-
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('テスト用サブスクを無効にしました'),
-                  backgroundColor: Colors.orange,
-                ),
-              );
-            },
-          ),
           ListTile(
             leading: const Icon(Icons.mail_outline),
             title: Text(tr('contact')),
