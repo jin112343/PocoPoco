@@ -4,6 +4,8 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
 import 'home_screen.dart';
+import 'terms_screen.dart';
+import 'privacy_policy_screen.dart';
 
 class UpgradeScreen extends StatefulWidget {
   const UpgradeScreen({super.key});
@@ -589,6 +591,43 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                       '広告なし',
                                       '快適な編み物体験を提供',
                                     ),
+
+                                    const SizedBox(height: 16),
+                                    Container(
+                                      padding: const EdgeInsets.all(16),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey[100],
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color:
+                                              Colors.grey[300] ?? Colors.grey,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          const Text(
+                                            'サブスクリプション情報',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            '• 月額プラン：300円/月（自動更新）\n'
+                                            '• 年間プラン：3000円/年（自動更新、月額250円相当）\n'
+                                            '• サブスクリプションはApp Storeの設定からキャンセルできます\n'
+                                            '• キャンセルしない限り、自動的に更新されます',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.grey[700],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -677,6 +716,51 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                         color: Colors.white.withOpacity(0.8),
                                       ),
                                       textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 24),
+
+                                    // 利用規約とプライバシーポリシーのリンク
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceEvenly,
+                                      children: [
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    const TermsScreen(),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text(
+                                            '利用規約',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              decoration:
+                                                  TextDecoration.underline,
+                                            ),
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: () {
+                                            Navigator.of(context).push(
+                                              MaterialPageRoute(
+                                                builder: (context) =>
+                                                    const PrivacyPolicyScreen(),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text(
+                                            'プライバシーポリシー',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              decoration:
+                                                  TextDecoration.underline,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),

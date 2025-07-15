@@ -73,6 +73,7 @@ class MyApp extends StatelessWidget {
     print('=== MyApp build ===');
     return MaterialApp(
       title: tr('app_title'),
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.pink,
         useMaterial3: true,
