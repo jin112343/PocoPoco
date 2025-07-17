@@ -6,10 +6,14 @@ import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
 import 'services/subscription_provider.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
+
+  // ATT許可リクエスト
+  await requestTrackingPermissionIfNeeded();
 
   // 画面の向きを縦表示のみに制限
   await SystemChrome.setPreferredOrientations([
@@ -63,6 +67,13 @@ void main() async {
       ),
     ),
   );
+}
+
+Future<void> requestTrackingPermissionIfNeeded() async {
+  final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+  if (status == TrackingStatus.notDetermined) {
+    await AppTrackingTransparency.requestTrackingAuthorization();
+  }
 }
 
 class MyApp extends StatelessWidget {
