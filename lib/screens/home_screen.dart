@@ -7,6 +7,7 @@ import 'settings_screen.dart';
 import 'upgrade_screen.dart';
 import '../services/subscription_provider.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +20,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storageService = StorageService();
   List<CrochetProject> _projects = [];
   bool _isLoading = true;
+  bool _hasRequestedTracking = false;
 
   @override
   void initState() {
@@ -58,10 +60,37 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _requestTrackingPermissionDelayed() async {
+    // アプリ起動から2秒後にATT許可を要求
+    await Future.delayed(const Duration(seconds: 2));
+    if (!_hasRequestedTracking) {
+      await _requestTrackingPermission();
+    }
+  }
+
+  Future<void> _requestTrackingPermission() async {
+    if (_hasRequestedTracking) return; // 既に要求済みの場合はスキップ
+    
+    try {
+      final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+      if (status == TrackingStatus.notDetermined) {
+        setState(() {
+          _hasRequestedTracking = true;
+        });
+        await AppTrackingTransparency.requestTrackingAuthorization();
+      }
+    } catch (e) {
+      print('ATT許可リクエストエラー: $e');
+    }
+  }
+
   void _createNewProject() {
     final isPremium = context.read<SubscriptionProvider>().isPremium;
     print(
         'HomeScreen: 新規プロジェクト作成 - isPremium: $isPremium, 現在のプロジェクト数: ${_projects.length}');
+
+    // 新規プロジェクト作成時にATT許可を要求
+    _requestTrackingPermission();
 
     if (!isPremium && _projects.length >= 3) {
       print('HomeScreen: 保存制限に達しました（無料プラン）');
@@ -106,6 +135,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openProject(CrochetProject project) {
+    // 既存プロジェクトを開く時にATT許可を要求
+    _requestTrackingPermission();
+    
     Navigator.of(context)
         .push(
       MaterialPageRoute(

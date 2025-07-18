@@ -220,7 +220,7 @@
 		</dict>
 	</array>
 	<key>NSUserTrackingUsageDescription</key>
-	<string>このアプリは、より関連性の高い広告を表示するために、デバイス識別子を使用します。</string>
+	<string>このアプリは、より関連性の高い広告を表示し、アプリの改善に役立てるために、デバイス識別子を使用します。この情報は個人を特定するものではありません。</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

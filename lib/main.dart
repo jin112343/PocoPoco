@@ -12,9 +12,6 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
 
-  // ATT許可リクエスト
-  await requestTrackingPermissionIfNeeded();
-
   // 画面の向きを縦表示のみに制限
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -69,10 +66,17 @@ void main() async {
   );
 }
 
+// ATT許可リクエスト関数（適切なタイミングで呼び出し）
 Future<void> requestTrackingPermissionIfNeeded() async {
-  final status = await AppTrackingTransparency.trackingAuthorizationStatus;
-  if (status == TrackingStatus.notDetermined) {
-    await AppTrackingTransparency.requestTrackingAuthorization();
+  try {
+    final status = await AppTrackingTransparency.trackingAuthorizationStatus;
+    if (status == TrackingStatus.notDetermined) {
+      // 少し遅延を入れてから許可を要求
+      await Future.delayed(const Duration(milliseconds: 500));
+      await AppTrackingTransparency.requestTrackingAuthorization();
+    }
+  } catch (e) {
+    print('ATT許可リクエストエラー: $e');
   }
 }
 
