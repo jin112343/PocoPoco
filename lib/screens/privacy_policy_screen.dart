@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class PrivacyPolicyScreen extends StatelessWidget {
   const PrivacyPolicyScreen({super.key});
@@ -43,8 +44,35 @@ class PrivacyPolicyScreen extends StatelessWidget {
                 '5. お問い合わせ\n'
                 '・プライバシーに関するお問い合わせは、アプリ内の設定画面からご連絡ください。\n\n'
                 '内容は予告なく変更される場合があります。\n\n'
-                '最終更新日：2024年12月',
+                '最終更新日：2025年7月19日\n\n'
+                '---\n'
+                'App Store Connect要件対応情報：\n'
+                '・プライバシーポリシーへの機能的なリンク：アプリ内に実装済み\n'
+                '・サブスクリプション関連の個人情報処理：App Storeを通じて管理\n'
+                '・広告関連の個人情報処理：Google Mobile Adsを使用',
                 style: TextStyle(fontSize: 16),
+              ),
+              SizedBox(height: 24),
+              Center(
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    final Uri url = Uri.parse('https://jinpost.wordpress.com/2025/07/13/プライバシーポリシー　編み物カウンターpocopoco/');
+                    if (await canLaunchUrl(url)) {
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('リンクを開けませんでした')),
+                      );
+                    }
+                  },
+                  icon: Icon(Icons.open_in_new),
+                  label: Text('Web版プライバシーポリシーを開く'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Color(0xFFEC407A),
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                ),
               ),
             ],
           ),
