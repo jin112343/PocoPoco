@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="PocoPoco"
+        android:label="編み物カウンターズ"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <!-- AdMob App ID -->

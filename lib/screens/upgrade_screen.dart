@@ -213,6 +213,13 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   }
 
   void _buy(ProductDetails product) {
+    if (_purchasePending) return; // 二重購入防止
+    if (product.id.isEmpty) {
+      setState(() {
+        _error = '商品情報が取得できません。IAPの設定を確認してください。';
+      });
+      return;
+    }
     setState(() {
       _purchasePending = true;
       _error = null;
@@ -440,38 +447,38 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                     ),
                   ],
                 ),
-                ElevatedButton(
-                  onPressed: _purchasePending ? null : () => _buy(product),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: planColor,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 16,
+                if (!_purchasePending && product.id.isNotEmpty)
+                  ElevatedButton(
+                    onPressed: () => _buy(product),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: planColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25),
+                      ),
+                      elevation: 4,
                     ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(25),
+                    child: const Text(
+                      '購入',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                    elevation: 4,
                   ),
-                  child: _purchasePending
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Text(
-                          '購入',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                ),
+                if (_purchasePending)
+                  const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
+                    ),
+                  ),
               ],
             ),
           ],
@@ -619,7 +626,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                             '• 月額プラン：300円/月（自動更新）\n'
                                             '• 年間プラン：3000円/年（自動更新、月額250円相当）\n'
                                             '• サブスクリプションはApp Storeの設定からキャンセルできます\n'
-                                            '• キャンセルしない限り、自動的に更新されます',
+                                            '• キャンセルしない限り、自動的に更新されます\n'
+                                            '• 購入履歴の復元が可能です\n'
+                                            '• 利用規約とプライバシーポリシーへの機能的なリンクが提供されています',
                                             style: TextStyle(
                                               fontSize: 14,
                                               color: Colors.grey[700],
@@ -682,7 +691,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                             )
                                           : const Icon(Icons.restore),
                                       label: Text(
-                                          _restorePending ? '復元中...' : '購入を復元'),
+                                          _restorePending ? '復元中...' : '購入履歴を復元'),
                                       style: TextButton.styleFrom(
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(
@@ -710,7 +719,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
 
                                     const SizedBox(height: 8),
                                     Text(
-                                      '支払い状況の確認や購入の復元ができます',
+                                      '支払い状況の確認や購入履歴の復元ができます',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.white.withOpacity(0.8),
@@ -719,7 +728,28 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                     ),
                                     const SizedBox(height: 24),
 
-                                    // 利用規約とプライバシーポリシーのリンク
+                                                                  // 利用規約とプライバシーポリシーのリンク
+                              Container(
+                                margin: const EdgeInsets.only(top: 16),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: Colors.white.withOpacity(0.2),
+                                  ),
+                                ),
+                                child: Column(
+                                  children: [
+                                    const Text(
+                                      '法的情報',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
                                     Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceEvenly,
@@ -762,6 +792,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                         ),
                                       ],
                                     ),
+                                  ],
+                                ),
+                              ),
                                   ],
                                 ),
                               ),
