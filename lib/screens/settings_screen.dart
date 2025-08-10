@@ -157,10 +157,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'v1.0.1',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+                                    const Text(
+                      'v1.0.2',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
               ],
             ),
           ),
