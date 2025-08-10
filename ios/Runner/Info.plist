@@ -28,6 +28,8 @@
 	<string>ca-app-pub-1187210314934709~9706131839</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSUserTrackingUsageDescription</key>
+	<string>このアプリは、より関連性の高い広告を表示し、アプリの改善に役立てるために、デバイス識別子を使用します。この情報は個人を特定するものではありません。</string>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
@@ -219,8 +221,6 @@
 			<string>3qcr597p9d.skadnetwork</string>
 		</dict>
 	</array>
-	<key>NSUserTrackingUsageDescription</key>
-	<string>このアプリは、より関連性の高い広告を表示し、アプリの改善に役立てるために、デバイス識別子を使用します。この情報は個人を特定するものではありません。</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

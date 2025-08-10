@@ -30,5 +30,14 @@
   "contact_error": "E-Mail-App konnte nicht gestartet werden",
   "premium_stitch": "Premium-Masche",
   "basic_stitch": "Grundmasche",
-  "select_premium_stitch": "Premium-Masche auswählen"
+  "select_premium_stitch": "Premium-Masche auswählen",
+  "rate_thanks": "Vielen Dank für Ihre Bewertung!",
+  "rate_ios_only": "Bewertungsfunktion ist nur auf iOS verfügbar",
+  "rate_error": "Beim Anfordern der Bewertung ist ein Fehler aufgetreten",
+  "watch_ad_title": "Video-Werbung ansehen?",
+  "watch_ad_message": "Schauen Sie sich eine Video-Werbung an, um das Speichern abzuschließen.",
+  "watch_ad_reset_title": "Video-Werbung ansehen?",
+  "watch_ad_reset_message": "Schauen Sie sich eine Video-Werbung an, um den Zähler zurückzusetzen.",
+  "watch_ad": "Werbung ansehen",
+  "no_thanks": "Nein, danke"
 } 

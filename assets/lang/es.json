@@ -30,5 +30,14 @@
   "contact_error": "No se pudo abrir la aplicación de correo",
   "premium_stitch": "Punto Premium",
   "basic_stitch": "Punto Básico",
-  "select_premium_stitch": "Seleccionar Punto Premium"
+  "select_premium_stitch": "Seleccionar Punto Premium",
+  "rate_thanks": "¡Gracias por tu valoración!",
+  "rate_ios_only": "La función de valoración solo está disponible en iOS",
+  "rate_error": "Ocurrió un error al solicitar la valoración",
+  "watch_ad_title": "¿Ver anuncio de video?",
+  "watch_ad_message": "Mira un anuncio de video para completar el guardado.",
+  "watch_ad_reset_title": "¿Ver anuncio de video?",
+  "watch_ad_reset_message": "Mira un anuncio de video para restablecer el contador.",
+  "watch_ad": "Ver Anuncio",
+  "no_thanks": "No, Gracias"
 } 

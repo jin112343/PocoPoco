@@ -30,5 +30,14 @@
   "contact_error": "Could not launch email app",
   "premium_stitch": "Premium Stitch",
   "basic_stitch": "Basic Stitch",
-  "select_premium_stitch": "Select Premium Stitch"
+  "select_premium_stitch": "Select Premium Stitch",
+  "rate_thanks": "Thank you for your rating!",
+  "rate_ios_only": "Rating feature is only available on iOS",
+  "rate_error": "An error occurred while requesting rating",
+  "watch_ad_title": "Watch Video Ad?",
+  "watch_ad_message": "Watch a video ad to complete the save.",
+  "watch_ad_reset_title": "Watch Video Ad?",
+  "watch_ad_reset_message": "Watch a video ad to reset the counter.",
+  "watch_ad": "Watch Ad",
+  "no_thanks": "No, Thanks"
 } 

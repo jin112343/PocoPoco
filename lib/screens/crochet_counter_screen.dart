@@ -471,6 +471,35 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       _resetAll();
       return;
     }
+
+    // ユーザーに動画広告を見るかどうか確認
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('watch_ad_reset_title')),
+        content: Text(tr('watch_ad_reset_message')),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _resetAll(); // 動画広告なしでリセット
+            },
+            child: Text(tr('no_thanks')),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showRewardedAdForReset();
+            },
+            child: Text(tr('watch_ad')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // リセット用の報酬広告を表示するメソッド
+  void _showRewardedAdForReset() {
     if (_isRewardedAdLoaded && _rewardedAd != null) {
       _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
         onAdDismissedFullScreenContent: (ad) {
@@ -610,7 +639,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
   }
 
-  // 保存成功後に動画広告を再生するメソッド
+  // 保存成功後に動画広告を見るかどうかユーザーに確認するメソッド
   void _showRewardedAdAfterSave() {
     final isPremium = context.read<SubscriptionProvider>().isPremium;
     if (isPremium) {
@@ -618,6 +647,31 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       return;
     }
 
+    // ユーザーに動画広告を見るかどうか確認
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('watch_ad_title')),
+        content: Text(tr('watch_ad_message')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(tr('no_thanks')),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showRewardedAd();
+            },
+            child: Text(tr('watch_ad')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 報酬広告を表示するメソッド（ユーザーが選択した場合のみ）
+  void _showRewardedAd() {
     if (_isRewardedAdLoaded && _rewardedAd != null) {
       _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
         onAdDismissedFullScreenContent: (ad) {
@@ -631,8 +685,8 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       );
       _rewardedAd!.show(
         onUserEarnedReward: (ad, reward) {
-          // 報酬を付与（保存完了の報酬として扱う）
-          print('保存完了の動画広告報酬を付与');
+          // 報酬を付与
+          print('動画広告報酬を付与');
         },
       );
     } else {

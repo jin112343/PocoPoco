@@ -30,5 +30,14 @@
   "contact_error": "이메일 앱을 실행할 수 없습니다",
   "premium_stitch": "프리미엄 뜨개질",
   "basic_stitch": "기본 뜨개질",
-  "select_premium_stitch": "프리미엄 뜨개질 선택"
+  "select_premium_stitch": "프리미엄 뜨개질 선택",
+  "rate_thanks": "평가해 주셔서 감사합니다!",
+  "rate_ios_only": "평가 기능은 iOS에서만 이용 가능합니다",
+  "rate_error": "평가 요청 중 오류가 발생했습니다",
+  "watch_ad_title": "동영상 광고를 보시겠습니까?",
+  "watch_ad_message": "동영상 광고를 보면 저장이 완료됩니다.",
+  "watch_ad_reset_title": "동영상 광고를 보시겠습니까?",
+  "watch_ad_reset_message": "동영상 광고를 보면 카운터를 리셋할 수 있습니다.",
+  "watch_ad": "광고 보기",
+  "no_thanks": "아니요, 괜찮습니다"
 } 

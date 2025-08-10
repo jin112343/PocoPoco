@@ -145,16 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             leading: const Icon(Icons.star_rate),
             title: Text(tr('rate_app')),
             onTap: () async {
-              final inAppReview = InAppReview.instance;
-              if (await inAppReview.isAvailable()) {
-                inAppReview.requestReview();
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(tr('rate_app')),
-                  ),
-                );
-              }
+              await _requestAppReview();
             },
           ),
           const SizedBox(height: 32),
@@ -167,7 +158,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'v1.0.0',
+                  'v1.0.1',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -176,5 +167,51 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  // iOSのみでアプリ内評価を実行
+  Future<void> _requestAppReview() async {
+    try {
+      final inAppReview = InAppReview.instance;
+      
+      // iOSのみで評価機能を利用可能かチェック
+      if (await inAppReview.isAvailable()) {
+        // アプリ内評価をリクエスト
+        await inAppReview.requestReview();
+        
+        // 評価完了後のフィードバック
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(tr('rate_thanks')),
+              backgroundColor: Colors.green,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // 評価機能が利用できない場合（Androidなど）
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(tr('rate_ios_only')),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('アプリ評価エラー: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(tr('rate_error')),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 }

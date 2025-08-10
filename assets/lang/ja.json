@@ -30,5 +30,14 @@
   "contact_error": "メールアプリを起動できませんでした",
   "premium_stitch": "プレミアム編み目",
   "basic_stitch": "基本編み目",
-  "select_premium_stitch": "プレミアム編み目を選択"
+  "select_premium_stitch": "プレミアム編み目を選択",
+  "rate_thanks": "評価ありがとうございます！",
+  "rate_ios_only": "評価機能はiOSでのみ利用できます",
+  "rate_error": "評価の実行中にエラーが発生しました",
+  "watch_ad_title": "動画広告を見ますか？",
+  "watch_ad_message": "動画広告を見ることで、保存が完了します。",
+  "watch_ad_reset_title": "動画広告を見ますか？",
+  "watch_ad_reset_message": "動画広告を見ることで、カウントをリセットできます。",
+  "watch_ad": "動画広告を見る",
+  "no_thanks": "いいえ、結構です"
 } 

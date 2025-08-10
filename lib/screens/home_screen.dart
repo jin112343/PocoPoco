@@ -875,10 +875,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                   value: 'delete',
                                   child: Row(
                                     children: [
-                                      Icon(Icons.edit, color: Colors.blue),
+                                      Icon(Icons.edit, color: Colors.black),
                                       SizedBox(width: 8),
                                       Text('編集',
-                                          style: TextStyle(color: Colors.blue)),
+                                          style: TextStyle(color: Colors.black)),
                                     ],
                                   ),
                                 ),
