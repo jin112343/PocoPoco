@@ -3,6 +3,12 @@ allprojects {
         google()
         mavenCentral()
     }
+    
+    // Java 11の設定
+    tasks.withType(JavaCompile) {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
 }
 
 rootProject.buildDir = "../build"

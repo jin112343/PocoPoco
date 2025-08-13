@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../models/crochet_stitch.dart';
 import '../screens/stitch_customization_screen.dart';
 import '../screens/upgrade_screen.dart';
@@ -34,6 +35,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   List<dynamic> _stitches = [];
   bool _isLoading = true;
   bool? _wasPremium; // 前回のプレミアム状態を記録
+  Map<dynamic, String> _stitchNameCache = {}; // 編み目名のキャッシュ
+  bool _hasTriedEasyLocalization = false; // EasyLocalization再試行フラグ
 
   @override
   void initState() {
@@ -45,42 +48,49 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   void didUpdateWidget(StitchPatternGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    print('StitchPatternGrid: didUpdateWidget called');
-    print('old projectStitches length: ${oldWidget.projectStitches?.length}');
-    print('new projectStitches length: ${widget.projectStitches?.length}');
+    // デバッグモード時のみログ出力
+    if (kDebugMode) {
+      print('StitchPatternGrid: didUpdateWidget called');
+      print('old projectStitches length: ${oldWidget.projectStitches?.length}');
+      print('new projectStitches length: ${widget.projectStitches?.length}');
+    }
 
     // プロジェクト固有の編み目設定が変更された場合は再読み込み
     bool shouldReload = false;
 
+    // 参照が同じ場合は内容変更なしとみなす
+    if (identical(widget.projectStitches, oldWidget.projectStitches)) {
+      if (kDebugMode) {
+        print('StitchPatternGrid: projectStitchesの参照が同じ、変更なし');
+      }
+      return;
+    }
+
     // nullチェック
     if (widget.projectStitches == null && oldWidget.projectStitches != null) {
       shouldReload = true;
-      print('StitchPatternGrid: projectStitchesがnullに変更されました');
+      if (kDebugMode) {
+        print('StitchPatternGrid: projectStitchesがnullに変更されました');
+      }
     } else if (widget.projectStitches != null &&
         oldWidget.projectStitches == null) {
       shouldReload = true;
-      print('StitchPatternGrid: projectStitchesがnullから変更されました');
+      if (kDebugMode) {
+        print('StitchPatternGrid: projectStitchesがnullから変更されました');
+      }
     } else if (widget.projectStitches != null &&
         oldWidget.projectStitches != null) {
       // 長さの比較
       if (widget.projectStitches!.length != oldWidget.projectStitches!.length) {
         shouldReload = true;
-        print('StitchPatternGrid: projectStitchesの長さが変更されました');
+        if (kDebugMode) {
+          print('StitchPatternGrid: projectStitchesの長さが変更されました');
+        }
       } else {
-        // 内容の比較
-        for (int i = 0; i < widget.projectStitches!.length; i++) {
-          if (i >= oldWidget.projectStitches!.length) {
-            shouldReload = true;
-            break;
-          }
-          final newStitch = widget.projectStitches![i];
-          final oldStitch = oldWidget.projectStitches![i];
-          if (newStitch.runtimeType != oldStitch.runtimeType ||
-              newStitch.name != oldStitch.name) {
-            shouldReload = true;
-            print('StitchPatternGrid: projectStitchesの内容が変更されました');
-            break;
-          }
+        // 内容の比較（深い比較）
+        shouldReload = _hasStitchesChanged(widget.projectStitches!, oldWidget.projectStitches!);
+        if (shouldReload && kDebugMode) {
+          print('StitchPatternGrid: projectStitchesの内容が変更されました');
         }
       }
     }
@@ -88,15 +98,16 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     // キーの変更もチェック
     if (widget.key != oldWidget.key) {
       shouldReload = true;
-      print('StitchPatternGrid: キーが変更されました');
+      if (kDebugMode) {
+        print('StitchPatternGrid: キーが変更されました');
+      }
     }
 
-    // 常に再読み込みを実行（確実に反映させるため）
-    shouldReload = true;
-    print('StitchPatternGrid: 編み目設定を再読み込みします');
-
+    // 必要な場合のみ再読み込みを実行
     if (shouldReload) {
-      print('StitchPatternGrid: 編み目設定を再読み込みします');
+      if (kDebugMode) {
+        print('StitchPatternGrid: 編み目設定を再読み込みします');
+      }
       _loadStitches();
     }
   }
@@ -104,21 +115,52 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _checkPremiumStatusChange();
+    
+    // EasyLocalizationが準備完了するまで待つ
+    if (!mounted || !context.mounted) {
+      return;
+    }
+    
+    try {
+      // EasyLocalizationの準備状況をチェック
+      final locale = context.locale;
+      if (kDebugMode) {
+        print('EasyLocalization ready: ${locale.languageCode}');
+      }
+      
+      _checkPremiumStatusChange();
 
-    // 依存関係が変更された時に編み目設定を再読み込み
-    if (_stitches.isEmpty && !_isLoading) {
-      _loadStitches();
+      // 依存関係が変更された時に編み目設定を再読み込み
+      if (_stitches.isEmpty && !_isLoading) {
+        _loadStitches();
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('EasyLocalization not ready yet: $e');
+      }
+      // 無限ループを防ぐため、一度だけ再試行
+      if (!_hasTriedEasyLocalization) {
+        _hasTriedEasyLocalization = true;
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) {
+            _hasTriedEasyLocalization = false;
+            didChangeDependencies();
+          }
+        });
+      }
     }
   }
 
   void _checkPremiumStatusChange() {
+    // 前回と同じ状態の場合はスキップ
     final isPremium = context.read<SubscriptionProvider>().isPremium;
     final wasPremium = _wasPremium;
 
     if (wasPremium != null && wasPremium && !isPremium) {
-      // プレミアムから解約された場合
-      print('StitchPatternGrid: プレミアム解約を検知しました');
+      // プレミアムから解約された場合のみ処理
+      if (kDebugMode) {
+        print('StitchPatternGrid: プレミアム解約を検知しました');
+      }
       _loadStitches(); // 編み目設定を再読み込み
     }
 
@@ -129,6 +171,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     print('StitchPatternGrid: _loadStitches called');
 
     try {
+      // 編み目設定が変更された場合はキャッシュをクリア
+      _stitchNameCache.clear();
+      
       // プロジェクト固有の編み目設定がある場合はそれを使用、なければ基本6つの編み目を使用
       if (widget.projectStitches != null &&
           widget.projectStitches!.isNotEmpty) {
@@ -146,29 +191,34 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         _stitches = StitchSettingsService.getDefaultStitches();
       }
 
-      // 編み目リストの内容をログ出力
-      print('読み込まれた編み目リスト:');
-      for (int i = 0; i < _stitches.length; i++) {
-        final stitch = _stitches[i];
-        try {
-          print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
-        } catch (e) {
-          print('  $i: エラーで名前を取得できませんでした (${stitch.runtimeType}): $e');
+      // デバッグモード時のみ編み目リストの内容をログ出力
+      if (kDebugMode) {
+        print('読み込まれた編み目リスト:');
+        for (int i = 0; i < _stitches.length; i++) {
+          final stitch = _stitches[i];
+          try {
+            // initState中は安全な名前取得を使用
+            String stitchName = 'Loading...';
+            if (mounted && context.mounted) {
+              stitchName = _getStitchName(stitch);
+            } else if (stitch is CrochetStitch) {
+              stitchName = stitch.nameEn; // デフォルトで英語名を使用
+            } else if (stitch is CustomStitch) {
+              stitchName = stitch.nameEn; // デフォルトで英語名を使用
+            }
+            print('  $i: $stitchName (${stitch.runtimeType})');
+          } catch (e) {
+            print('  $i: エラーで名前を取得できませんでした (${stitch.runtimeType}): $e');
+          }
         }
       }
 
-      // UIを更新
+      // UIを一度だけ更新
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-
-        // 少し待ってから再度更新（確実に反映させるため）
-        await Future.delayed(const Duration(milliseconds: 100));
-        if (mounted) {
-          setState(() {});
-          print('StitchPatternGrid: UI更新完了、編み目数: ${_stitches.length}');
-        }
+        print('StitchPatternGrid: UI更新完了、編み目数: ${_stitches.length}');
       }
     } catch (e) {
       print('編み目設定読み込みエラー: $e');
@@ -183,9 +233,54 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     }
   }
 
+  // 編み目設定の内容が変更されたかチェック
+  bool _hasStitchesChanged(List<dynamic> newStitches, List<dynamic> oldStitches) {
+    if (newStitches.length != oldStitches.length) return true;
+    
+    for (int i = 0; i < newStitches.length; i++) {
+      final newStitch = newStitches[i];
+      final oldStitch = oldStitches[i];
+      
+      // 型が異なる場合は変更あり
+      if (newStitch.runtimeType != oldStitch.runtimeType) return true;
+      
+      // 編み目の名前を比較
+      String newName, oldName;
+      try {
+        newName = _getStitchName(newStitch);
+        oldName = _getStitchName(oldStitch);
+      } catch (e) {
+        // 名前取得でエラーが発生した場合は変更ありとみなす
+        return true;
+      }
+      
+      if (newName != oldName) return true;
+    }
+    
+    return false;
+  }
+
   String _getStitchName(dynamic stitch) {
+    // キャッシュをチェック
+    if (_stitchNameCache.containsKey(stitch)) {
+      return _stitchNameCache[stitch]!;
+    }
+    
     try {
-      final locale = context.locale.languageCode;
+      // EasyLocalizationが利用可能になるまで待つ
+      if (!mounted || !context.mounted) {
+        return 'Loading...';
+      }
+      
+      // context.localeが利用可能かチェック
+      String locale = 'en'; // デフォルトで英語
+      try {
+        locale = context.locale.languageCode;
+      } catch (e) {
+        // EasyLocalizationがまだ初期化されていない場合はデフォルトで英語を使用
+        print('EasyLocalization not ready, using default locale: en');
+      }
+      
       String result;
 
       if (stitch is CrochetStitch) {
@@ -198,31 +293,48 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       } else {
         result = 'Unknown';
       }
-      print(
-          'StitchPatternGrid: _getStitchName - stitch: ${stitch.runtimeType}, result: $result, nameJa: ${stitch is CustomStitch ? stitch.nameJa : ''}, nameEn: ${stitch is CustomStitch ? stitch.nameEn : ''}, locale: $locale');
+      
+      // 結果が空文字列の場合はデフォルト値を返す
+      if (result.isEmpty) {
+        if (stitch is CrochetStitch) {
+          result = stitch.nameEn; // 英語名をフォールバックとして使用
+        } else if (stitch is CustomStitch) {
+          result = stitch.nameEn; // 英語名をフォールバックとして使用
+        } else {
+          result = 'Unknown';
+        }
+      }
+      
+      // キャッシュに保存
+      _stitchNameCache[stitch] = result;
+      
+      // デバッグモード時のみ詳細ログ出力
+      if (kDebugMode) {
+        print(
+            'StitchPatternGrid: _getStitchName - stitch: ${stitch.runtimeType}, result: $result, locale: $locale');
+      }
       return result;
     } catch (e) {
       print('StitchPatternGrid: _getStitchName error: $e');
-      return 'Unknown';
+      // エラーが発生した場合のフォールバック
+      String fallbackName = 'Unknown';
+      if (stitch is CrochetStitch) {
+        fallbackName = stitch.nameEn;
+      } else if (stitch is CustomStitch) {
+        fallbackName = stitch.nameEn;
+      }
+      
+      // フォールバック名もキャッシュに保存
+      _stitchNameCache[stitch] = fallbackName;
+      return fallbackName;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    print(
-        'StitchPatternGrid: build called, _stitches.length = ${_stitches.length}');
-    print(
-        'StitchPatternGrid: projectStitches.length = ${widget.projectStitches?.length}');
-    print('StitchPatternGrid: 現在の編み目リスト:');
-    for (int i = 0; i < _stitches.length; i++) {
-      final stitch = _stitches[i];
-      if (stitch is CrochetStitch) {
-        print('  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-      } else if (stitch is CustomStitch) {
-        print('  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-      } else {
-        print('  $i: 不明な型 (${stitch.runtimeType})');
-      }
+    // デバッグモード時のみログ出力
+    if (kDebugMode) {
+      print('StitchPatternGrid: build called, _stitches.length = ${_stitches.length}');
     }
 
     if (_isLoading) {
@@ -396,8 +508,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                                 fit: BoxFit.contain,
                                               )
                                             : Text(
-                                                _getStitchName(stitch)
-                                                    .substring(0, 1),
+                                                _getStitchName(stitch).isNotEmpty 
+                                                    ? _getStitchName(stitch).substring(0, 1)
+                                                    : '?',
                                                 style: TextStyle(
                                                   fontSize: 18,
                                                   fontWeight: FontWeight.bold,
@@ -411,7 +524,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                     const SizedBox(width: 8),
                                     Flexible(
                                       child: Text(
-                                        _getStitchName(stitch).length > 8
+                                        _getStitchName(stitch).isNotEmpty && _getStitchName(stitch).length > 8
                                             ? '${_getStitchName(stitch).substring(0, 6)}...'
                                             : _getStitchName(stitch),
                                         style: TextStyle(
@@ -526,30 +639,31 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Center(
-                                      child: stitch.imagePath != null
-                                          ? Image.asset(
-                                              stitch.imagePath!,
-                                              width: 28,
-                                              height: 28,
-                                              fit: BoxFit.contain,
-                                            )
-                                          : Text(
-                                              _getStitchName(stitch)
-                                                  .substring(0, 1),
-                                              style: TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.bold,
-                                                color: isCustomStitch
-                                                    ? stitch.color
-                                                    : stitch.color,
-                                              ),
+                                                                          child: stitch.imagePath != null
+                                        ? Image.asset(
+                                            stitch.imagePath!,
+                                            width: 28,
+                                            height: 28,
+                                            fit: BoxFit.contain,
+                                          )
+                                        : Text(
+                                            _getStitchName(stitch).isNotEmpty 
+                                                ? _getStitchName(stitch).substring(0, 1)
+                                                : '?',
+                                            style: TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.bold,
+                                              color: isCustomStitch
+                                                  ? stitch.color
+                                                  : stitch.color,
                                             ),
+                                          ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
-                                      _getStitchName(stitch).length > 8
+                                      _getStitchName(stitch).isNotEmpty && _getStitchName(stitch).length > 8
                                           ? '${_getStitchName(stitch).substring(0, 6)}...'
                                           : _getStitchName(stitch),
                                       style: TextStyle(

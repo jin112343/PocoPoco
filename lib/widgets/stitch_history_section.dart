@@ -19,6 +19,7 @@ class StitchHistorySection extends StatefulWidget {
   final Function(int)? onRowTap;
   final Function(int)? onRowCompleted;
   final Function(int)? onStitchRemoved; // 編み目削除コールバック
+
   final int? currentRow;
   final int? currentStitchCount;
 
@@ -45,6 +46,20 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     super.didUpdateWidget(oldWidget);
 
     final currentMaxRow = _getMaxRow();
+    final currentHistoryLength = widget.stitchHistory.length;
+    final oldHistoryLength = oldWidget.stitchHistory.length;
+
+    // 段が削除された場合の処理を追加
+    if (currentHistoryLength < oldHistoryLength) {
+      // 段削除後のクリーンアップとUI更新
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _cleanupRemovedRows();
+        // 強制的にUIを更新
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    }
 
     // 新しい段が開始された場合（段完成時）のみ自動スクロール
     if (currentMaxRow > _lastMaxRow) {
@@ -57,21 +72,55 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     }
 
     // 編み目が追加された場合、一番右の最新を表示するために自動スクロール
-    if (widget.stitchHistory.length > _lastHistoryLength) {
+    if (currentHistoryLength > _lastHistoryLength) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToLatestStitch();
       });
     }
 
-    _lastHistoryLength = widget.stitchHistory.length;
+    // 削除された段のキーとコントローラーをクリーンアップ
+    _cleanupRemovedRows();
+
+    _lastHistoryLength = currentHistoryLength;
     _lastMaxRow = currentMaxRow;
   }
 
   int _getMaxRow() {
-    if (widget.stitchHistory.isEmpty) return 0;
-    return widget.stitchHistory
+    try {
+      if (widget.stitchHistory.isEmpty) return 0;
+      return widget.stitchHistory
+          .map((e) => e['row'] as int)
+          .reduce((a, b) => a > b ? a : b);
+    } catch (e) {
+      // エラーが発生した場合は0を返す
+      print('_getMaxRowでエラーが発生: $e');
+      return 0;
+    }
+  }
+
+  // 削除された段のキーとコントローラーをクリーンアップ
+  void _cleanupRemovedRows() {
+    // 現在存在する段番号のセットを作成
+    final currentRows = widget.stitchHistory
         .map((e) => e['row'] as int)
-        .reduce((a, b) => a > b ? a : b);
+        .toSet();
+
+    // _rowKeysから削除された段のキーを削除
+    final keysToRemove = _rowKeys.keys
+        .where((row) => !currentRows.contains(row))
+        .toList();
+    for (final row in keysToRemove) {
+      _rowKeys.remove(row);
+    }
+
+    // _horizontalScrollControllersから削除された段のコントローラーを削除
+    final controllersToRemove = _horizontalScrollControllers.keys
+        .where((row) => !currentRows.contains(row))
+        .toList();
+    for (final row in controllersToRemove) {
+      final controller = _horizontalScrollControllers.remove(row);
+      controller?.dispose();
+    }
   }
 
   @override
@@ -84,51 +133,66 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   }
 
   void scrollToRow(int row) {
-    if (_rowKeys.containsKey(row)) {
-      final key = _rowKeys[row]!;
-      final context = key.currentContext;
-      if (context != null) {
-        Scrollable.ensureVisible(
-          context,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
+    try {
+      if (_rowKeys.containsKey(row)) {
+        final key = _rowKeys[row]!;
+        final context = key.currentContext;
+        if (context != null) {
+          Scrollable.ensureVisible(
+            context,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        }
       }
+    } catch (e) {
+      // エラーが発生した場合は無視（段が削除された可能性）
+      print('scrollToRowでエラーが発生: $e');
     }
   }
 
   void _scrollToLatestRow() {
-    if (widget.stitchHistory.isEmpty) return;
+    try {
+      if (widget.stitchHistory.isEmpty) return;
 
-    // 最新の段を取得
-    final latestRow = widget.stitchHistory.last['row'] as int;
-    final key = _rowKeys[latestRow];
+      // 最新の段を取得
+      final latestRow = widget.stitchHistory.last['row'] as int;
+      final key = _rowKeys[latestRow];
 
-    if (key?.currentContext != null) {
-      Scrollable.ensureVisible(
-        key!.currentContext!,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-        alignment: 0.0, // 画面の上端に合わせる
-      );
+      if (key?.currentContext != null) {
+        Scrollable.ensureVisible(
+          key!.currentContext!,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+          alignment: 0.0, // 画面の上端に合わせる
+        );
+      }
+    } catch (e) {
+      // エラーが発生した場合は無視（段が削除された可能性）
+      print('_scrollToLatestRowでエラーが発生: $e');
     }
   }
 
   void _scrollToLatestStitch() {
-    if (widget.stitchHistory.isEmpty) return;
+    try {
+      if (widget.stitchHistory.isEmpty) return;
 
-    // 最新の段を取得
-    final latestRow = widget.stitchHistory.last['row'] as int;
-    final controller = _horizontalScrollControllers[latestRow];
+      // 最新の段を取得
+      final latestRow = widget.stitchHistory.last['row'] as int;
+      final controller = _horizontalScrollControllers[latestRow];
 
-    if (controller != null && controller.hasClients) {
-      final position = controller.position;
-      final maxScrollExtent = position.maxScrollExtent;
+      if (controller != null && controller.hasClients) {
+        final position = controller.position;
+        final maxScrollExtent = position.maxScrollExtent;
 
-      if (maxScrollExtent > 0) {
-        // 一番右の最新を表示するために最右端までスクロール
-        controller.jumpTo(maxScrollExtent);
+        if (maxScrollExtent > 0) {
+          // 一番右の最新を表示するために最右端までスクロール
+          controller.jumpTo(maxScrollExtent);
+        }
       }
+    } catch (e) {
+      // エラーが発生した場合は無視（段が削除された可能性）
+      print('_scrollToLatestStitchでエラーが発生: $e');
     }
   }
 
@@ -263,7 +327,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       // 段のヘッダー＋編み目を縦並び
       items.add(
         Dismissible(
-          key: ValueKey('row_$row'),
+          key: ValueKey('row_${row}_${rowStitches.length}_${rowStitches.first['timestamp']?.millisecondsSinceEpoch ?? row}'),
           direction: DismissDirection.endToStart,
           background: Container(
             margin: const EdgeInsets.only(bottom: 24),
@@ -300,6 +364,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
             );
           },
           onDismissed: (direction) {
+            // 削除完了を通知（データ更新は親ウィジェットで一元管理）
             if (widget.onStitchRemoved != null) {
               widget.onStitchRemoved!(row);
             }
@@ -351,7 +416,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                               stitchData['stitch'], widget.currentStitches);
                           final position = stitchData['position'] as int;
 
-                          return Padding(
+                                                  return Padding(
+                          key: ValueKey('stitch_${row}_${position}_${stitchData['timestamp']?.millisecondsSinceEpoch ?? '${row}_$position'}'),
                             padding: const EdgeInsets.only(right: 12),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,

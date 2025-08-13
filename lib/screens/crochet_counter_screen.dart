@@ -28,253 +28,598 @@ class CrochetCounterScreen extends StatefulWidget {
 class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   final Logger _logger = Logger();
   final StorageService _storageService = StorageService();
+
+  // 状態管理の最適化
   int _stitchCount = 0;
   int _rowNumber = 1;
   CrochetStitch _selectedStitch = CrochetStitch.singleCrochet;
   final List<Map<String, dynamic>> _stitchHistory = [];
+
+  // 広告関連
   RewardedAd? _rewardedAd;
   bool _isRewardedAdLoaded = false;
   BannerAd? _bannerAd;
   bool _isBannerAdLoaded = false;
+
+  // プロジェクト関連
   String _projectId = '';
   String _projectTitle = '新しいプロジェクト';
   bool _hasUnsavedChanges = false;
-  bool? _wasPremium; // 前回のプレミアム状態を記録
-  List<dynamic>? _projectCustomStitches; // プロジェクトの編み目設定
-  int _stitchGridKey = 0; // 編み目グリッドのキー更新用
+
+  // パフォーマンス最適化のためのキャッシュ
+  bool? _wasPremium;
+  List<dynamic>? _cachedProjectStitches;
+  int? _cachedProjectStitchesHash;
+  List<dynamic>? _defaultStitches;
+
+  // 処理状態管理
+  bool _isRemovingRow = false;
+  bool _isInitializing = false;
+  bool _isSaving = false;
+
+  // サブスクリプション状態のキャッシュ
+  SubscriptionProvider? _subscriptionProvider;
 
   @override
   void initState() {
     super.initState();
-    _loadRewardedAd();
-    _loadBannerAd();
-    _initializeProject().then((_) async {
-      // 初期化完了後に編み目設定を強制再読み込み
-      print('初期化完了、編み目設定を強制再読み込み中...');
-      await _reloadProjectCustomStitches();
-
-      // さらにグローバル設定も確認
-      final globalStitches = await StitchSettingsService.getGlobalStitches();
-      print('初期化時のグローバル編み目設定: ${globalStitches.length}個');
-
-      // UIを更新
-      if (mounted) {
-        setState(() {
-          _stitchGridKey++;
-        });
-
-        // 少し待ってから再度更新（確実に反映させるため）
-        await Future.delayed(const Duration(milliseconds: 200));
-        if (mounted) {
-          setState(() {});
-        }
-      }
-    });
+    _initializeOptimized();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _checkPremiumStatusChange();
+    _initializeSubscriptionProvider();
+    _checkPremiumStatusChangeOptimized();
   }
 
-  void _checkPremiumStatusChange() {
-    final isPremium = context.read<SubscriptionProvider>().isPremium;
+  /// 最適化されたサブスクリプションプロバイダーの初期化
+  void _initializeSubscriptionProvider() {
+    if (_subscriptionProvider == null) {
+      _subscriptionProvider = context.read<SubscriptionProvider>();
+      _loadRewardedAd();
+      _loadBannerAd();
+    }
+  }
+
+  /// 最適化されたプレミアム状態変更チェック
+  void _checkPremiumStatusChangeOptimized() {
+    final isPremium = _subscriptionProvider?.isPremium ?? false;
     final wasPremium = _wasPremium;
 
-    if (wasPremium != null && wasPremium && !isPremium) {
-      // プレミアムから解約された場合
-      print('プレミアム解約を検知しました');
-      _resetStitchSettingsToDefault();
-    } else if (wasPremium != null && !wasPremium && isPremium) {
-      // プレミアムにアップグレードされた場合
-      print('プレミアムアップグレードを検知しました');
-      _reloadProjectCustomStitches();
+    // 状態に変化がある場合のみ処理
+    if (wasPremium != null && wasPremium != isPremium) {
+      if (wasPremium && !isPremium) {
+        _logger.i('プレミアム解約を検知');
+        _resetStitchSettingsToDefaultOptimized();
+      } else if (!wasPremium && isPremium) {
+        _logger.i('プレミアムアップグレードを検知');
+        _reloadProjectCustomStitchesOptimized();
+      }
     }
 
     _wasPremium = isPremium;
   }
 
-  void _resetStitchSettingsToDefault() async {
-    try {
-      print('編み目設定を基本の6つにリセットします');
+  /// 最適化された初期化処理
+  Future<void> _initializeOptimized() async {
+    if (_isInitializing) return;
 
-      // グローバル編み目設定をデフォルトにリセット
+    try {
+      _isInitializing = true;
+      _logger.i('最適化された初期化開始');
+
+      if (widget.project != null) {
+        await _loadExistingProject(widget.project!);
+      } else {
+        _initializeNewProject();
+      }
+
+      // 編み目設定の初期化（一度だけ）
+      await _initializeStitchSettings();
+
+      _logger.i('最適化された初期化完了');
+    } catch (e, stackTrace) {
+      _logger.e('初期化エラー', error: e, stackTrace: stackTrace);
+      _initializeNewProject(); // フォールバック
+    } finally {
+      _isInitializing = false;
+    }
+  }
+
+  /// 既存プロジェクトの読み込み（最適化版）
+  Future<void> _loadExistingProject(CrochetProject project) async {
+    _projectId = project.id;
+    _projectTitle = project.title;
+    _stitchCount = project.currentStitchCount;
+    _rowNumber = project.currentRow;
+    _stitchHistory.clear();
+    _stitchHistory.addAll(project.stitchHistory);
+    _cachedProjectStitches = project.customStitches;
+    _hasUnsavedChanges = false;
+
+    _logger.i('既存プロジェクト読み込み完了: ${project.title}');
+  }
+
+  /// 新規プロジェクトの初期化
+  void _initializeNewProject() {
+    _projectId = _storageService.generateProjectId();
+    _projectTitle = '新しい編みもの';
+    _stitchCount = 0;
+    _rowNumber = 1;
+    _stitchHistory.clear();
+    _cachedProjectStitches = null; // 遅延初期化
+    _hasUnsavedChanges = false;
+
+    _logger.i('新規プロジェクト初期化完了');
+  }
+
+  /// 編み目設定の初期化（最適化版）
+  Future<void> _initializeStitchSettings() async {
+    try {
+      if (_cachedProjectStitches == null) {
+        if (widget.project?.customStitches?.isNotEmpty == true) {
+          _cachedProjectStitches = widget.project!.customStitches;
+        } else {
+          _cachedProjectStitches = StitchSettingsService.getDefaultStitches();
+        }
+      }
+
+      // ハッシュ値を計算してキャッシュ
+      _cachedProjectStitchesHash = _calculateStitchesHash(_cachedProjectStitches!);
+
+      _logger.i('編み目設定初期化完了: ${_cachedProjectStitches!.length}個');
+    } catch (e) {
+      _logger.e('編み目設定初期化エラー: $e');
+      _cachedProjectStitches = StitchSettingsService.getDefaultStitches();
+      _cachedProjectStitchesHash = _calculateStitchesHash(_cachedProjectStitches!);
+    }
+  }
+
+  /// 編み目リストのハッシュ値計算
+  int _calculateStitchesHash(List<dynamic> stitches) {
+    return Object.hashAll(stitches.map((s) {
+      if (s is CrochetStitch) {
+        return s.name;
+      } else if (s is CustomStitch) {
+        return '${s.name}_${s.color.value}';
+      }
+      return s.toString();
+    }));
+  }
+
+  /// 編み目設定のリセット（最適化版）
+  Future<void> _resetStitchSettingsToDefaultOptimized() async {
+    try {
+      _logger.i('編み目設定を基本設定にリセット');
+
       final defaultStitches = StitchSettingsService.getDefaultStitches();
+      final newHash = _calculateStitchesHash(defaultStitches);
+
+      // ハッシュが同じ場合は処理をスキップ
+      if (_cachedProjectStitchesHash == newHash) {
+        _logger.d('編み目設定に変更なし、リセットをスキップ');
+        return;
+      }
+
+      // グローバル設定の更新
       await StitchSettingsService.saveGlobalStitches(defaultStitches);
 
-      // プロジェクトの編み目設定もリセット
+      // プロジェクト設定の更新
       if (widget.project != null) {
-        final updatedProject = CrochetProject(
-          id: widget.project!.id,
-          title: widget.project!.title,
-          createdAt: widget.project!.createdAt,
-          updatedAt: DateTime.now(),
-          stitchHistory: widget.project!.stitchHistory,
-          currentRow: widget.project!.currentRow,
-          currentStitchCount: widget.project!.currentStitchCount,
-          iconName: widget.project!.iconName,
-          iconColor: widget.project!.iconColor,
-          backgroundColor: widget.project!.backgroundColor,
-          customStitches: [], // カスタム編み目をクリア
-        );
-
-        final isPremium = context.read<SubscriptionProvider>().isPremium;
-        await _storageService.saveProject(updatedProject, isPremium: isPremium);
+        await _updateProjectStitches(defaultStitches);
       }
 
-      print('編み目設定のリセットが完了しました');
-
-      // UIを更新
-      setState(() {
-        // 編み目ボタンを再構築
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('プレミアム解約により編み目設定を基本に戻しました'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-    } catch (e) {
-      print('編み目設定リセットエラー: $e');
-    }
-  }
-
-  Future<void> _initializeProject() async {
-    try {
-      print('=== プロジェクト初期化開始 ===');
-
-      if (widget.project != null) {
-        // 既存のプロジェクトを読み込み
-        final project = widget.project!;
-        print('既存プロジェクトを読み込み: ${project.title}');
-        _projectId = project.id;
-        _projectTitle = project.title;
-        _stitchCount = project.currentStitchCount;
-        _rowNumber = project.currentRow;
-        _stitchHistory.clear();
-        _stitchHistory.addAll(project.stitchHistory);
-        _projectCustomStitches = project.customStitches;
-        _hasUnsavedChanges = false; // 既存プロジェクトは変更なしとして初期化
-        print('プロジェクト読み込み完了: ${_stitchHistory.length}件の履歴');
-        print('プロジェクトの編み目設定: ${_projectCustomStitches?.length}個');
-      } else {
-        // 新しい編みものを作成
-        _projectId = _storageService.generateProjectId();
-        _projectTitle = '新しい編みもの';
-        // 新規プロジェクトは必ず基本6つから開始
-        _projectCustomStitches = StitchSettingsService.getDefaultStitches();
-        _hasUnsavedChanges = false; // 新規プロジェクトは変更なしとして初期化
-        print(
-            '新規編みもの作成: $_projectId, 基本編み目設定: ${_projectCustomStitches?.length}個');
-        print('生成されたプロジェクトID: $_projectId');
-      }
-
-      // 最終的な編み目設定の確認
-      print('最終的な編み目設定: ${_projectCustomStitches?.length}個');
-      if (_projectCustomStitches != null) {
-        for (int i = 0; i < _projectCustomStitches!.length; i++) {
-          final stitch = _projectCustomStitches![i];
-          if (stitch is CrochetStitch) {
-            print('  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-          } else if (stitch is CustomStitch) {
-            print('  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-          } else {
-            print('  $i: 不明な型 (${stitch.runtimeType})');
-          }
-        }
-      }
-
-      // 初期化時の編み目設定詳細ログ
-      print('初期化時の編み目設定詳細:');
-      if (_projectCustomStitches != null) {
-        for (int i = 0; i < _projectCustomStitches!.length; i++) {
-          final stitch = _projectCustomStitches![i];
-          if (stitch is CrochetStitch) {
-            print('  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-          } else if (stitch is CustomStitch) {
-            print('  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-          } else {
-            print('  $i: 不明な型 (${stitch.runtimeType})');
-          }
-        }
-      }
-
-      print('✅ プロジェクト初期化完了');
-    } catch (e) {
-      print('❌ プロジェクト初期化エラー: $e');
-      // エラーが発生した場合は新規プロジェクトとして初期化
-      _projectId = _storageService.generateProjectId();
-      _projectTitle = '新しい編みもの';
-      _stitchCount = 0;
-      _rowNumber = 1;
-      _stitchHistory.clear();
-      _projectCustomStitches = StitchSettingsService.getDefaultStitches();
-      _hasUnsavedChanges = false;
-    }
-  }
-
-  // プロジェクト固有の編み目設定を再読み込み
-  Future<void> _reloadProjectCustomStitches() async {
-    try {
-      print('=== 編み目設定再読み込み開始 ===');
-
-      if (widget.project != null) {
-        // 既存プロジェクトの場合は保存された設定を再読み込み
-        final updatedProject = await _storageService.getProjects();
-        final currentProject = updatedProject.firstWhere(
-          (p) => p.id == widget.project!.id,
-          orElse: () => widget.project!,
-        );
-        _projectCustomStitches = currentProject.customStitches;
-        print('プロジェクト固有の編み目設定を再読み込み: ${_projectCustomStitches?.length}個');
-      } else {
-        // 新規プロジェクトの場合は基本6つの編み目を使用
-        _projectCustomStitches = StitchSettingsService.getDefaultStitches();
-        print('新規プロジェクト用の基本編み目設定を使用: ${_projectCustomStitches?.length}個');
-      }
-
-      // 読み込まれた編み目設定の詳細ログ
-      print('読み込まれた編み目設定の詳細:');
-      if (_projectCustomStitches != null) {
-        for (int i = 0; i < _projectCustomStitches!.length; i++) {
-          final stitch = _projectCustomStitches![i];
-          if (stitch is CrochetStitch) {
-            print('  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-          } else if (stitch is CustomStitch) {
-            print('  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-          } else {
-            print('  $i: 不明な型 (${stitch.runtimeType})');
-          }
-        }
-      }
-
-      // プロジェクト固有の編み目設定が空の場合は、基本6つの編み目を使用
-      if (_projectCustomStitches == null || _projectCustomStitches!.isEmpty) {
-        print('プロジェクト固有の編み目設定が空のため、基本6つの編み目を使用します');
-        _projectCustomStitches = StitchSettingsService.getDefaultStitches();
-        print('基本編み目設定を使用: ${_projectCustomStitches?.length}個');
-      }
+      // キャッシュの更新
+      _cachedProjectStitches = defaultStitches;
+      _cachedProjectStitchesHash = newHash;
 
       if (mounted) {
-        setState(() {
-          _stitchGridKey++; // キーを更新してウィジェットを強制的に再構築
-        });
-        print('✅ UI更新完了');
-
-        // 少し待ってから再度更新（確実に反映させるため）
-        await Future.delayed(const Duration(milliseconds: 100));
-        if (mounted) {
-          setState(() {});
-          print('✅ 二重UI更新完了');
-        }
+        setState(() {}); // 一度だけ更新
+        _showSnackBar('編み目設定を基本に戻しました', Colors.orange);
       }
     } catch (e) {
-      print('❌ 編み目設定再読み込みエラー: $e');
+      _logger.e('編み目設定リセットエラー: $e');
     }
   }
 
+  /// プロジェクト編み目設定の再読み込み（最適化版）
+  Future<void> _reloadProjectCustomStitchesOptimized() async {
+    try {
+      _logger.i('編み目設定再読み込み開始');
+
+      List<dynamic> newStitches;
+      if (widget.project != null) {
+        final updatedProjects = await _storageService.getProjects();
+        final currentProject = updatedProjects.firstWhere(
+              (p) => p.id == widget.project!.id,
+          orElse: () => widget.project!,
+        );
+        newStitches = currentProject.customStitches ?? StitchSettingsService.getDefaultStitches();
+      } else {
+        newStitches = StitchSettingsService.getDefaultStitches();
+      }
+
+      final newHash = _calculateStitchesHash(newStitches);
+
+      // ハッシュが同じ場合は処理をスキップ
+      if (_cachedProjectStitchesHash == newHash) {
+        _logger.d('編み目設定に変更なし、再読み込みをスキップ');
+        return;
+      }
+
+      // キャッシュの更新
+      _cachedProjectStitches = newStitches;
+      _cachedProjectStitchesHash = newHash;
+
+      _logger.i('編み目設定再読み込み完了: ${newStitches.length}個');
+
+      if (mounted) {
+        setState(() {}); // 一度だけ更新
+      }
+    } catch (e) {
+      _logger.e('編み目設定再読み込みエラー: $e');
+    }
+  }
+
+  /// 段削除処理（最適化版）
+  Future<void> _removeRowOptimized(int rowNumber) async {
+    if (_isRemovingRow) {
+      _logger.w('段削除処理中、重複削除をスキップ: $rowNumber段目');
+      return;
+    }
+
+    final stopwatch = Stopwatch()..start();
+
+    try {
+      _isRemovingRow = true;
+      _logger.i('段削除開始: $rowNumber段目');
+
+      // 削除対象の存在確認
+      if (!_stitchHistory.any((stitch) => stitch['row'] == rowNumber)) {
+        _logger.w('削除対象の段が見つかりません: $rowNumber段目');
+        return;
+      }
+
+      // UI更新を一度だけ実行
+      setState(() {
+        // 指定された段の編み目をすべて削除
+        _stitchHistory.removeWhere((stitch) => stitch['row'] == rowNumber);
+
+        // 段数を効率的に振り直し
+        _renumberRowsSequentiallyOptimized();
+
+        // 現在の段数と編み目数を再計算
+        if (_stitchHistory.isNotEmpty) {
+          _rowNumber = _getCurrentRow();
+          // 現在の段の編み目数を正確に計算
+          _stitchCount = _stitchHistory
+              .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
+              .length;
+        } else {
+          _rowNumber = 0;
+          _stitchCount = 0;
+        }
+      });
+
+      _hasUnsavedChanges = true;
+
+      // 段削除後の追加のUI更新を確実に実行
+      if (mounted) {
+        // 強制的に再ビルドを促す
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            // 段削除後の編み目数を再計算
+            if (_stitchHistory.isNotEmpty) {
+              _stitchCount = _stitchHistory
+                  .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
+                  .length;
+            } else {
+              _stitchCount = 0;
+            }
+            
+            setState(() {});
+            // 段削除後の状態を確実に更新
+            _logger.d('段削除後の状態更新: 段数=$_rowNumber, 編み目数=$_stitchCount');
+          }
+        });
+      }
+
+      // 成功通知
+      if (mounted) {
+        _showSnackBar('$rowNumber段目を削除しました', Colors.orange);
+      }
+
+      _logger.i('段削除完了: $rowNumber段目');
+    } catch (e, stackTrace) {
+      _logger.e('段削除エラー', error: e, stackTrace: stackTrace);
+    } finally {
+      _isRemovingRow = false;
+      stopwatch.stop();
+      _logger.d('段削除処理時間: ${stopwatch.elapsedMilliseconds}ms');
+    }
+  }
+
+  /// 段数振り直し処理（最適化版）
+  void _renumberRowsSequentiallyOptimized() {
+    if (_stitchHistory.isEmpty) return;
+
+    try {
+      // 段ごとにグループ化（効率的なアルゴリズム）
+      final Map<int, List<Map<String, dynamic>>> groupedByRow = {};
+      for (final stitch in _stitchHistory) {
+        final row = stitch['row'] as int;
+        (groupedByRow[row] ??= []).add(stitch);
+      }
+
+      // 段数を1から順番に振り直す
+      final sortedRows = groupedByRow.keys.toList()..sort();
+      int newRowNumber = 1;
+      bool hasChanges = false;
+
+      for (final oldRowNumber in sortedRows) {
+        if (oldRowNumber != newRowNumber) {
+          final stitchesInRow = groupedByRow[oldRowNumber]!;
+          for (final stitch in stitchesInRow) {
+            stitch['row'] = newRowNumber;
+            hasChanges = true;
+          }
+        }
+        newRowNumber++;
+      }
+
+      if (hasChanges) {
+        _logger.i('段数の振り直しが完了しました');
+      }
+    } catch (e) {
+      _logger.e('段数振り直しエラー: $e');
+    }
+  }
+
+  /// 現在の編み目設定を取得（最適化版）
+  List<dynamic> _getCurrentStitchesOptimized() {
+    // キャッシュされた編み目設定を返す
+    if (_cachedProjectStitches != null) {
+      return _cachedProjectStitches!;
+    }
+
+    // 遅延初期化
+    if (_defaultStitches == null) {
+      _defaultStitches = StitchSettingsService.getDefaultStitches();
+    }
+    return _defaultStitches!;
+  }
+
+  /// プロジェクト編み目設定の更新（最適化版）
+  Future<void> _updateProjectStitches(List<dynamic> newStitches) async {
+    if (widget.project == null) return;
+
+    try {
+      final updatedProject = widget.project!.copyWith(
+        customStitches: newStitches,
+        updatedAt: DateTime.now(),
+      );
+
+      final isPremium = _subscriptionProvider?.isPremium ?? false;
+      final success = await _storageService.saveProject(updatedProject, isPremium: isPremium);
+
+      if (success) {
+        _logger.i('プロジェクト編み目設定更新完了');
+      } else {
+        _logger.e('プロジェクト編み目設定更新失敗');
+      }
+    } catch (e) {
+      _logger.e('プロジェクト編み目設定更新エラー: $e');
+    }
+  }
+
+  /// 保存処理（最適化版）
+  Future<bool> _saveProjectOptimized() async {
+    if (_isSaving) {
+      _logger.w('保存処理中、重複保存をスキップ');
+      return false;
+    }
+
+    try {
+      _isSaving = true;
+      _logger.i('プロジェクト保存開始');
+
+      final project = CrochetProject(
+        id: _projectId,
+        title: _projectTitle,
+        createdAt: widget.project?.createdAt ?? DateTime.now(),
+        updatedAt: DateTime.now(),
+        stitchHistory: _stitchHistory,
+        currentRow: _getCurrentRow(),
+        currentStitchCount: _getCurrentStitchCount(),
+        iconName: widget.project?.iconName ?? 'work',
+        iconColor: widget.project?.iconColor ?? '0xFF000000',
+        backgroundColor: widget.project?.backgroundColor ?? '0xFFFFFFFF',
+        customStitches: _cachedProjectStitches ?? [],
+      );
+
+      final isPremium = _subscriptionProvider?.isPremium ?? false;
+      final success = await _storageService.saveProject(project, isPremium: isPremium);
+
+      if (success) {
+        setState(() {
+          _hasUnsavedChanges = false;
+        });
+        _showSnackBar('保存完了', Colors.green);
+        return true;
+      } else {
+        if (!isPremium) {
+          _showSnackBar('保存制限に達しました', Colors.red);
+        }
+        return false;
+      }
+    } catch (e) {
+      _logger.e('保存エラー: $e');
+      _showSnackBar('保存に失敗しました', Colors.red);
+      return false;
+    } finally {
+      _isSaving = false;
+    }
+  }
+
+  /// スナックバー表示のヘルパー
+  void _showSnackBar(String message, Color color) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: color,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  /// 編み目追加処理
+  void _addStitch(dynamic stitch) {
+    try {
+      setState(() {
+        // 現在の段の編み目数を正確に計算
+        final currentRowStitches = _stitchHistory
+            .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
+            .length;
+        
+        // 次の編み目の位置を計算
+        _stitchCount = currentRowStitches + 1;
+
+        Map<String, dynamic> historyItem = {
+          'row': _rowNumber,
+          'position': _stitchCount,
+          'timestamp': DateTime.now(),
+        };
+
+        if (stitch is CrochetStitch) {
+          historyItem['stitch'] = stitch;
+        } else if (stitch is CustomStitch) {
+          historyItem['stitch'] = {
+            'type': 'custom',
+            'name': stitch.name,
+            'nameJa': stitch.nameJa,
+            'nameEn': stitch.nameEn,
+            'imagePath': stitch.imagePath,
+            'color': stitch.color.value,
+            'isOval': stitch.isOval,
+          };
+        } else {
+          historyItem['stitch'] = stitch;
+        }
+
+        _stitchHistory.add(historyItem);
+        _hasUnsavedChanges = true;
+      });
+
+      _logger.i('編み目追加: 段$_rowNumber, 位置$_stitchCount');
+    } catch (e, stackTrace) {
+      _logger.e('編み目追加エラー', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  /// 最後の編み目削除
+  void _removeLastStitch() {
+    try {
+      if (_stitchHistory.isNotEmpty) {
+        setState(() {
+          final lastStitch = _stitchHistory.last;
+
+          if (lastStitch['isRowStart'] == true) {
+            _stitchHistory.removeLast();
+            _renumberRowsSequentiallyOptimized();
+            _rowNumber = _getCurrentRow();
+            // 現在の段の編み目数を正確に計算
+            _stitchCount = _stitchHistory
+                .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
+                .length;
+          } else {
+            _stitchHistory.removeLast();
+            // 現在の段の編み目数を正確に計算
+            _stitchCount = _stitchHistory
+                .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
+                .length;
+          }
+
+          _hasUnsavedChanges = true;
+        });
+        _logger.i('最後の編み目削除完了: 段$_rowNumber, 編み目数$_stitchCount');
+      }
+    } catch (e, stackTrace) {
+      _logger.e('最後の編み目削除エラー', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  /// 段完成処理
+  void _completeRow() {
+    try {
+      if (_stitchCount > 0) {
+        setState(() {
+          int maxRow = 0;
+          if (_stitchHistory.isNotEmpty) {
+            maxRow = _stitchHistory.map((e) => e['row'] as int).reduce((a, b) => a > b ? a : b);
+          }
+
+          _rowNumber = maxRow + 1;
+          // 新しい段の編み目数を0にリセット
+          _stitchCount = 0;
+
+          _stitchHistory.add({
+            'stitch': _selectedStitch,
+            'row': _rowNumber,
+            'position': 0,
+            'timestamp': DateTime.now(),
+            'isRowStart': true,
+          });
+          _hasUnsavedChanges = true;
+        });
+
+        _logger.i('段完成: $_rowNumber段目, 編み目数: $_stitchCount');
+      }
+    } catch (e, stackTrace) {
+      _logger.e('段完成エラー', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  /// リセット処理
+  void _resetAll() {
+    try {
+      setState(() {
+        _stitchCount = 0;
+        _rowNumber = 1;
+        _stitchHistory.clear();
+        _hasUnsavedChanges = true;
+      });
+      _logger.i('リセット完了');
+    } catch (e, stackTrace) {
+      _logger.e('リセットエラー', error: e, stackTrace: stackTrace);
+    }
+  }
+
+  /// 現在の段数取得
+  int _getCurrentRow() {
+    if (_stitchHistory.isEmpty) return 0;
+    try {
+      return _stitchHistory.last['row'] as int;
+    } catch (e) {
+      _logger.e('現在段数取得エラー: $e');
+      return 0;
+    }
+  }
+
+  /// 現在の編み目数取得
+  int _getCurrentStitchCount() {
+    if (_stitchHistory.isEmpty) return 0;
+    try {
+      return _stitchHistory.where((stitch) => stitch['position'] != 0).length;
+    } catch (e) {
+      _logger.e('現在編み目数取得エラー: $e');
+      return 0;
+    }
+  }
+
+  /// 広告読み込み
   void _loadRewardedAd() {
     final adUnitId = Platform.isAndroid
         ? 'ca-app-pub-1187210314934709/4892788853'
@@ -323,211 +668,220 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     _bannerAd!.load();
   }
 
-  void _addStitch(dynamic stitch) {
-    try {
-      setState(() {
-        _stitchCount++;
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: _showSaveDialogOptimized,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFCE4EC),
+        appBar: _buildAppBar(),
+        body: SafeArea(
+          child: Column(
+            children: [
+              // 編み目履歴
+              Expanded(
+                flex: 1,
+                child: StitchHistorySection(
+                  stitchHistory: _stitchHistory,
+                  currentStitches: _getCurrentStitchesOptimized(),
+                  onRowTap: (rowNumber) {
+                    _showSnackBar('$rowNumber段目に移動しました', const Color(0xFFAD1457));
+                  },
+                  onRowCompleted: (rowNumber) {
+                    // 段完成時の処理
+                  },
+                  onStitchRemoved: (rowNumber) async {
+                    await _removeRowOptimized(rowNumber);
+                  },
+                  currentRow: _getCurrentRow(),
+                  currentStitchCount: _getCurrentStitchCount(),
+                ),
+              ),
+              const SizedBox(height: 10),
 
-        // stitchの型に応じて履歴に保存する情報を決定
-        Map<String, dynamic> historyItem = {
-          'row': _rowNumber,
-          'position': _stitchCount,
-          'timestamp': DateTime.now(),
-        };
+              // 編み目パターンとコントロール
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  children: [
+                    // 最適化されたStitchPatternGrid
+                    StitchPatternGrid(
+                      key: ValueKey('optimized_${_cachedProjectStitchesHash ?? 0}'),
+                      selectedStitch: _selectedStitch,
+                      onStitchSelected: (stitch) {
+                        setState(() {
+                          _selectedStitch = stitch;
+                        });
+                      },
+                      onStitchAdded: _addStitch,
+                      projectStitches: _getCurrentStitchesOptimized(),
+                      onStitchSettingsChanged: () async {
+                        await _reloadProjectCustomStitchesOptimized();
+                      },
+                      onProjectStitchesChanged: (newStitches) async {
+                        await _updateProjectStitchesOptimized(newStitches);
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    ControlButtons(
+                      onRemoveStitch: _removeLastStitch,
+                      onCompleteRow: _completeRow,
+                      onReset: _resetAll,
+                      canRemoveStitch: _stitchHistory.isNotEmpty,
+                      canCompleteRow: _stitchCount > 0,
+                    ),
+                  ],
+                ),
+              ),
 
-        if (stitch is CrochetStitch) {
-          historyItem['stitch'] = stitch;
-        } else if (stitch is CustomStitch) {
-          // CustomStitchの場合は必要な情報をすべて保存
-          historyItem['stitch'] = {
-            'type': 'custom',
-            'name': stitch.name,
-            'nameJa': stitch.nameJa,
-            'nameEn': stitch.nameEn,
-            'imagePath': stitch.imagePath,
-            'color': stitch.color.value,
-            'isOval': stitch.isOval,
-          };
-        } else {
-          // その他の型の場合はそのまま保存
-          historyItem['stitch'] = stitch;
-        }
-
-        _stitchHistory.add(historyItem);
-        _hasUnsavedChanges = true;
-      });
-
-      String stitchName = '';
-      if (stitch is CrochetStitch) {
-        stitchName = stitch.name;
-      } else if (stitch is CustomStitch) {
-        stitchName = stitch.name;
-      } else {
-        stitchName = stitch.toString();
-      }
-
-      _logger
-          .i('addStitch: $stitchNameを追加しました。段: $_rowNumber, 位置: $_stitchCount');
-    } catch (e, stackTrace) {
-      _logger.e('関数名: _addStitch, '
-          'パラメータ: stitch=$stitch, '
-          '例外内容: $e, '
-          'スタックトレース: $stackTrace');
-    }
-  }
-
-  void _removeLastStitch() {
-    try {
-      if (_stitchCount > 0) {
-        setState(() {
-          _stitchCount--;
-          if (_stitchHistory.isNotEmpty) {
-            _stitchHistory.removeLast();
-          }
-          _hasUnsavedChanges = true;
-        });
-        _logger.i('removeLastStitch: 最後の編み目を削除しました。現在の値: $_stitchCount');
-      }
-    } catch (e, stackTrace) {
-      _logger.e('関数名: _removeLastStitch, '
-          'パラメータ: なし, '
-          '例外内容: $e, '
-          'スタックトレース: $stackTrace');
-    }
-  }
-
-  void _completeRow() {
-    try {
-      if (_stitchCount > 0) {
-        setState(() {
-          _rowNumber++;
-          _stitchCount = 0;
-          // 段完成時に空の段を履歴に追加して表示
-          _stitchHistory.add({
-            'stitch': _selectedStitch,
-            'row': _rowNumber,
-            'position': 0, // 0は段開始を示す
-            'timestamp': DateTime.now(),
-            'isRowStart': true, // 段開始フラグ
-          });
-          _hasUnsavedChanges = true;
-        });
-
-        _logger.i('completeRow: 段を完成しました。新しい段: $_rowNumber');
-      }
-    } catch (e, stackTrace) {
-      _logger.e('関数名: _completeRow, '
-          'パラメータ: なし, '
-          '例外内容: $e, '
-          'スタックトレース: $stackTrace');
-    }
-  }
-
-  void _resetAll() {
-    try {
-      setState(() {
-        _stitchCount = 0;
-        _rowNumber = 1;
-        _stitchHistory.clear();
-        _hasUnsavedChanges = true;
-      });
-      _logger.i('resetAll: すべてをリセットしました');
-    } catch (e, stackTrace) {
-      _logger.e('関数名: _resetAll, '
-          'パラメータ: なし, '
-          '例外内容: $e, '
-          'スタックトレース: $stackTrace');
-    }
-  }
-
-  void _removeRow(int rowNumber) {
-    try {
-      setState(() {
-        // 指定された段の編み目をすべて削除
-        _stitchHistory.removeWhere((stitch) => stitch['row'] == rowNumber);
-        _stitchCount = _getCurrentStitchCount();
-      });
-      _hasUnsavedChanges = true;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$rowNumber段目を削除しました'),
-          backgroundColor: Colors.orange,
+              // バナー広告
+              if (!(_subscriptionProvider?.isPremium ?? false) &&
+                  _isBannerAdLoaded &&
+                  _bannerAd != null)
+                Container(
+                  width: _bannerAd!.size.width.toDouble(),
+                  height: _bannerAd!.size.height.toDouble(),
+                  child: AdWidget(ad: _bannerAd!),
+                ),
+            ],
+          ),
         ),
-      );
-
-      _logger.i('removeRow: $rowNumber段目を削除しました');
-    } catch (e, stackTrace) {
-      _logger.e('関数名: _removeRow, '
-          'パラメータ: rowNumber=$rowNumber, '
-          '例外内容: $e, '
-          'スタックトレース: $stackTrace');
-    }
-  }
-
-  void _showRewardedAdAndReset() {
-    final isPremium = context.read<SubscriptionProvider>().isPremium;
-    if (isPremium) {
-      _resetAll();
-      return;
-    }
-
-    // ユーザーに動画広告を見るかどうか確認
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr('watch_ad_reset_title')),
-        content: Text(tr('watch_ad_reset_message')),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _resetAll(); // 動画広告なしでリセット
-            },
-            child: Text(tr('no_thanks')),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _showRewardedAdForReset();
-            },
-            child: Text(tr('watch_ad')),
-          ),
-        ],
       ),
     );
   }
 
-  // リセット用の報酬広告を表示するメソッド
-  void _showRewardedAdForReset() {
-    if (_isRewardedAdLoaded && _rewardedAd != null) {
-      _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
-        onAdDismissedFullScreenContent: (ad) {
-          ad.dispose();
-          _resetAll();
-          _loadRewardedAd();
-        },
-        onAdFailedToShowFullScreenContent: (ad, error) {
-          ad.dispose();
-          _resetAll();
-          _loadRewardedAd();
-        },
-      );
-      _rewardedAd!.show(
-        onUserEarnedReward: (ad, reward) {
-          // 報酬を付与
-        },
-      );
-    } else {
-      _resetAll();
+  /// AppBarの構築
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      title: GestureDetector(
+        onTap: _editProjectTitle,
+        child: Text(
+          _projectTitle.isEmpty ? tr('app_title') : _projectTitle,
+          style: const TextStyle(
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+      ),
+      backgroundColor: const Color(0xFFEC407A),
+      centerTitle: true,
+      elevation: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: _handleBackButtonOptimized,
+      ),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.save),
+          onPressed: _isSaving ? null : () async {
+            final result = await _saveProjectOptimized();
+            if (result) {
+              _showRewardedAdAfterSave();
+            }
+          },
+        ),
+        IconButton(
+          icon: const Icon(Icons.settings),
+          onPressed: _navigateToSettings,
+        ),
+      ],
+    );
+  }
+
+  /// プロジェクト編み目設定の最適化された更新
+  Future<void> _updateProjectStitchesOptimized(List<dynamic> newStitches) async {
+    try {
+      final newHash = _calculateStitchesHash(newStitches);
+
+      // ハッシュが同じ場合は処理をスキップ
+      if (_cachedProjectStitchesHash == newHash) {
+        _logger.d('プロジェクト編み目設定に変更なし、更新をスキップ');
+        return;
+      }
+
+      _logger.i('プロジェクト編み目設定更新開始: ${newStitches.length}個');
+
+      // キャッシュを更新
+      _cachedProjectStitches = List.from(newStitches);
+      _cachedProjectStitchesHash = newHash;
+
+      // プロジェクトが存在する場合は保存
+      if (widget.project != null) {
+        await _updateProjectStitches(newStitches);
+      }
+
+      // UI更新（一度だけ）
+      if (mounted) {
+        setState(() {});
+        _logger.i('プロジェクト編み目設定更新完了');
+      }
+    } catch (e) {
+      _logger.e('プロジェクト編み目設定更新エラー: $e');
     }
   }
 
-  Future<String?> _editProjectTitle() async {
-    final TextEditingController controller =
-        TextEditingController(text: _projectTitle);
+  /// 戻るボタンの最適化された処理
+  Future<void> _handleBackButtonOptimized() async {
+    _logger.d('戻るボタン押下');
 
-    final result = await showDialog<String>(
+    if (!_hasUnsavedChanges) {
+      _logger.d('変更なし、直接戻る');
+      Navigator.of(context).pop();
+      return;
+    }
+
+    final result = await _showSaveDialogOptimized();
+    if (result == true) {
+      if (_projectTitle == '新しい編みもの' || _projectTitle.isEmpty) {
+        final titleResult = await _editProjectTitle();
+        if (titleResult == null) return;
+      }
+
+      final saveSuccess = await _saveProjectOptimized();
+      if (saveSuccess) {
+        _showRewardedAdAfterSave();
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const HomeScreen()),
+              (route) => false,
+        );
+      }
+    } else if (result == false) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  /// 最適化された保存ダイアログ
+  Future<bool> _showSaveDialogOptimized() async {
+    if (!_hasUnsavedChanges) return true;
+
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('変更を保存'),
+        content: const Text('変更を保存しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('保存しない'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    
+    // nullの場合はfalse（保存しない）として扱う
+    return result ?? false;
+  }
+
+  /// プロジェクトタイトル編集
+  Future<String?> _editProjectTitle() async {
+    final TextEditingController controller = TextEditingController(text: _projectTitle);
+
+    return await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(tr('edit_stitch_buttons')),
@@ -535,7 +889,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
           controller: controller,
           decoration: InputDecoration(
             labelText: tr('edit_stitch_buttons'),
-            hintText: '例: マフラー', // TODO: 各言語追加可
+            hintText: '例: マフラー',
           ),
           autofocus: true,
         ),
@@ -560,94 +914,36 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         ],
       ),
     );
-
-    return result;
   }
 
-  Future<bool> _saveProject() async {
-    // タイトルがデフォルトの場合でも保存を許可（戻るボタンからの呼び出しの場合は既にタイトル編集済み）
-    // 保存ボタンからの呼び出しの場合のみタイトル編集を促す
-    if (_projectTitle == '新しい編みもの' || _projectTitle.isEmpty) {
-      // 戻るボタンからの呼び出しの場合はタイトル編集をスキップ
-      // 保存ボタンからの呼び出しの場合のみタイトル編集を促す
-      // この部分は戻るボタンの処理で既に処理済みなので、ここでは何もしない
-    }
+  /// 設定画面への遷移（最適化版）
+  Future<void> _navigateToSettings() async {
+    final currentProject = widget.project;
 
-    try {
-      print('=== CrochetCounterScreen: プロジェクト保存開始 ===');
-
-      final project = CrochetProject(
-        id: _projectId,
-        title: _projectTitle,
-        createdAt: widget.project?.createdAt ?? DateTime.now(),
-        updatedAt: DateTime.now(),
-        stitchHistory: _stitchHistory,
-        currentRow: _getCurrentRow(),
-        currentStitchCount: _getCurrentStitchCount(),
-        iconName: widget.project?.iconName ?? 'work',
-        iconColor: widget.project?.iconColor ?? '0xFF000000',
-        backgroundColor: widget.project?.backgroundColor ?? '0xFFFFFFFF',
-        customStitches:
-            _projectCustomStitches ?? widget.project?.customStitches ?? [],
-      );
-
-      print(
-          'プロジェクト作成完了: ${project.title}, ID: ${project.id}, 履歴数: ${project.stitchHistory.length}');
-      print(
-          'プロジェクト詳細: widget.project=${widget.project != null ? "存在" : "null"}');
-
-      final isPremium = context.read<SubscriptionProvider>().isPremium;
-      print('=== プレミアム状態確認 ===');
-      print('保存時のプレミアム状態: $isPremium');
-      print('保存するプロジェクト: ${project.title}, ID: ${project.id}');
-
-      final success =
-          await _storageService.saveProject(project, isPremium: isPremium);
-      print('保存結果: $success');
-
-      if (success) {
-        setState(() {
-          _hasUnsavedChanges = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(tr('save') + ' ' + tr('ok')),
-            backgroundColor: Colors.green,
-          ),
-        );
-        return true;
-      } else {
-        if (!isPremium) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('save_limit_message')),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return false;
-      }
-    } catch (e) {
-      print('保存エラー: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(tr('save') + ' ' + tr('premium_only_message')),
-          backgroundColor: Colors.red,
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SettingsScreen(
+          isFromProject: true,
+          currentProject: currentProject,
         ),
-      );
-      return false;
+      ),
+    );
+
+    // 設定画面から戻った時の処理（最適化）
+    if (result == true && mounted) {
+      _logger.i('設定画面から戻りました、編み目設定を確認');
+
+      // 少し待ってから再読み込み
+      await Future.delayed(const Duration(milliseconds: 300));
+      await _reloadProjectCustomStitchesOptimized();
     }
   }
 
-  // 保存成功後に動画広告を見るかどうかユーザーに確認するメソッド
+  /// 保存後の報酬広告表示
   void _showRewardedAdAfterSave() {
-    final isPremium = context.read<SubscriptionProvider>().isPremium;
-    if (isPremium) {
-      // プレミアムユーザーは動画広告を再生しない
-      return;
-    }
+    final isPremium = _subscriptionProvider?.isPremium ?? false;
+    if (isPremium) return;
 
-    // ユーザーに動画広告を見るかどうか確認
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -670,407 +966,83 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     );
   }
 
-  // 報酬広告を表示するメソッド（ユーザーが選択した場合のみ）
+  /// 報酬広告の表示
   void _showRewardedAd() {
     if (_isRewardedAdLoaded && _rewardedAd != null) {
       _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
         onAdDismissedFullScreenContent: (ad) {
           ad.dispose();
-          _loadRewardedAd(); // 次の動画広告を読み込み
+          _loadRewardedAd();
         },
         onAdFailedToShowFullScreenContent: (ad, error) {
           ad.dispose();
-          _loadRewardedAd(); // 次の動画広告を読み込み
+          _loadRewardedAd();
         },
       );
       _rewardedAd!.show(
         onUserEarnedReward: (ad, reward) {
-          // 報酬を付与
-          print('動画広告報酬を付与');
+          _logger.i('報酬広告視聴完了');
         },
       );
-    } else {
-      print('動画広告が読み込まれていません');
     }
   }
 
-  Future<bool> _showSaveDialog() async {
-    // 変更がない場合は直接戻る
-    if (!_hasUnsavedChanges) {
-      return true;
+  /// リセット時の報酬広告表示
+  void _showRewardedAdAndReset() {
+    final isPremium = _subscriptionProvider?.isPremium ?? false;
+    if (isPremium) {
+      _resetAll();
+      return;
     }
 
-    final result = await showDialog<bool>(
+    showDialog(
       context: context,
-      barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: Text(tr('save')),
-        content: Text(tr('save') + '?'),
+        title: Text(tr('watch_ad_reset_title')),
+        content: Text(tr('watch_ad_reset_message')),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(tr('cancel')),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _resetAll();
+            },
+            child: Text(tr('no_thanks')),
           ),
           TextButton(
-            onPressed: () async {
-              Navigator.of(context).pop(true);
-              await _saveProject();
+            onPressed: () {
+              Navigator.of(context).pop();
+              _showRewardedAdForReset();
             },
-            child: Text(tr('save')),
+            child: Text(tr('watch_ad')),
           ),
         ],
       ),
     );
-
-    return result ?? false;
   }
 
-  int _getCurrentRow() {
-    if (_stitchHistory.isEmpty) return 0;
-    return _stitchHistory.last['row'] as int;
-  }
-
-  int _getCurrentStitchCount() {
-    if (_stitchHistory.isEmpty) return 0;
-    return _stitchHistory.where((stitch) => stitch['position'] != 0).length;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _showSaveDialog,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFFCE4EC),
-        appBar: AppBar(
-          title: GestureDetector(
-            onTap: _editProjectTitle,
-            child: Text(
-              _projectTitle.isEmpty ? tr('app_title') : _projectTitle,
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
-          ),
-          backgroundColor: const Color(0xFFEC407A),
-          centerTitle: true,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () async {
-              print('戻るボタンが押されました');
-              // 変更がない場合は直接戻る
-              if (!_hasUnsavedChanges) {
-                print('変更なし、直接戻る');
-                Navigator.of(context).pop();
-                return;
-              }
-
-              print('変更あり、保存確認ダイアログを表示');
-              // 変更がある場合は保存確認ダイアログを表示
-              final result = await showDialog<bool>(
-                context: context,
-                barrierDismissible: false,
-                builder: (context) => AlertDialog(
-                  title: const Text('変更を保存'),
-                  content: const Text('変更を保存しますか？'),
-                  actions: [
-                    TextButton(
-                      onPressed: () {
-                        print('保存しないを選択');
-                        Navigator.of(context).pop(false);
-                      },
-                      child: const Text('保存しない'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        print('保存を選択');
-                        Navigator.of(context).pop(true);
-                      },
-                      child: const Text('保存'),
-                    ),
-                  ],
-                ),
-              );
-
-              print('ダイアログ結果: $result');
-
-              if (result == true) {
-                print('保存処理開始');
-                // 保存を選択した場合
-                if (_projectTitle == '新しい編みもの' || _projectTitle.isEmpty) {
-                  print('タイトル編集開始');
-                  final titleResult = await _editProjectTitle();
-                  if (titleResult == null) {
-                    print('タイトル編集キャンセル');
-                    return;
-                  }
-                  print('タイトル編集完了: $titleResult');
-                }
-
-                print('保存処理実行');
-                final saveSuccess = await _saveProject();
-                if (saveSuccess) {
-                  print('保存成功、動画広告を再生してからホーム画面に遷移');
-                  // 保存成功後に動画広告を再生
-                  _showRewardedAdAfterSave();
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                      builder: (context) => const HomeScreen(),
-                    ),
-                    (route) => false,
-                  );
-                }
-              } else if (result == false) {
-                print('保存しない、直接戻る');
-                Navigator.of(context).pop();
-              }
-            },
-          ),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.save),
-              onPressed: () async {
-                final result = await _saveProject();
-                if (result) {
-                  // 保存成功後に動画広告を再生
-                  _showRewardedAdAfterSave();
-                  // 保存成功後はリセットせず、成功メッセージのみ表示
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(tr('save') + ' ' + tr('ok')),
-                      backgroundColor: Colors.green,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                }
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () async {
-                // 現在のプロジェクト情報を保存
-                final currentProject = widget.project;
-
-                final result = await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => SettingsScreen(
-                      // プロジェクト画面からの設定であることを示すフラグ
-                      isFromProject: true,
-                      currentProject: currentProject,
-                    ),
-                  ),
-                );
-
-                // 設定画面から戻った時に、編み目設定が変更された場合は再読み込み
-                if (result == true) {
-                  print('設定画面から戻りました。編み目設定を再読み込みします。');
-
-                  // 少し待ってから再読み込み（保存処理の完了を待つ）
-                  await Future.delayed(const Duration(milliseconds: 500));
-
-                  // プロジェクトを再読み込み
-                  if (currentProject != null) {
-                    final updatedProjects = await _storageService.getProjects();
-                    final updatedProject = updatedProjects.firstWhere(
-                      (p) => p.id == currentProject.id,
-                      orElse: () => currentProject,
-                    );
-
-                    // プロジェクトの編み目設定を更新
-                    _projectCustomStitches = updatedProject.customStitches;
-                    print(
-                        '更新されたプロジェクトの編み目設定: ${_projectCustomStitches?.length}個');
-
-                    // 編み目設定の詳細をログ出力
-                    if (_projectCustomStitches != null) {
-                      for (int i = 0; i < _projectCustomStitches!.length; i++) {
-                        final stitch = _projectCustomStitches![i];
-                        if (stitch is CrochetStitch) {
-                          print(
-                              '  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-                        } else if (stitch is CustomStitch) {
-                          print(
-                              '  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-                        } else {
-                          print('  $i: 不明な型 (${stitch.runtimeType})');
-                        }
-                      }
-                    }
-                  }
-
-                  // UIを更新
-                  if (mounted) {
-                    setState(() {
-                      _stitchGridKey++;
-                    });
-
-                    // 少し待ってから再度更新（確実に反映させるため）
-                    await Future.delayed(const Duration(milliseconds: 200));
-                    if (mounted) {
-                      setState(() {});
-                    }
-                  }
-                }
-              },
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // 編み目履歴をトップに配置（面積をさらに調整）
-              Expanded(
-                flex: 1,
-                child: StitchHistorySection(
-                  stitchHistory: _stitchHistory,
-                  currentStitches: _projectCustomStitches ??
-                      widget.project?.customStitches ??
-                      StitchSettingsService.getDefaultStitches(),
-                  onRowTap: (rowNumber) {
-                    // 履歴の段目がタップされた時の処理
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('$rowNumber段目に移動しました'),
-                        duration: const Duration(milliseconds: 500),
-                        backgroundColor: const Color(0xFFAD1457),
-                      ),
-                    );
-                  },
-                  onRowCompleted: (rowNumber) {
-                    // 段が完成した時の処理（ポップアップなし）
-                  },
-                  onStitchRemoved: (rowNumber) {
-                    // 段が削除された時の処理
-                    _removeRow(rowNumber);
-                  },
-                  currentRow: _getCurrentRow(),
-                  currentStitchCount: _getCurrentStitchCount(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              // 編み方を選択から下を固定配置
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    StitchPatternGrid(
-                      key: ValueKey(
-                          'stitch_pattern_grid_${_projectCustomStitches?.length ?? 0}_${_projectCustomStitches?.hashCode ?? 0}_$_stitchGridKey'),
-                      selectedStitch: _selectedStitch,
-                      onStitchSelected: (stitch) {
-                        setState(() {
-                          _selectedStitch = stitch;
-                        });
-                      },
-                      onStitchAdded: _addStitch,
-                      projectStitches: _projectCustomStitches ??
-                          widget.project?.customStitches,
-                      onStitchSettingsChanged: () async {
-                        print('CrochetCounterScreen: 編み目設定が変更されました');
-
-                        // プロジェクト固有の編み目設定を再読み込み
-                        await _reloadProjectCustomStitches();
-
-                        // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
-                        // ScaffoldMessenger.of(context).showSnackBar(
-                        //   const SnackBar(
-                        //     content: Text('編み目設定を更新しました'),
-                        //     backgroundColor: Colors.green,
-                        //   ),
-                        // );
-                      },
-                      onProjectStitchesChanged: (newStitches) async {
-                        print('CrochetCounterScreen: プロジェクト固有の編み目設定が変更されました');
-                        print('新しい編み目数: ${newStitches.length}');
-                        print('新しい編み目リスト:');
-                        for (int i = 0; i < newStitches.length; i++) {
-                          final stitch = newStitches[i];
-                          if (stitch is CrochetStitch) {
-                            print(
-                                '  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-                          } else if (stitch is CustomStitch) {
-                            print(
-                                '  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-                          } else {
-                            print('  $i: 不明な型 (${stitch.runtimeType})');
-                          }
-                        }
-
-                        // プロジェクト固有の編み目設定を更新
-                        _projectCustomStitches = List.from(newStitches);
-
-                        // プロジェクトが存在する場合は保存
-                        if (widget.project != null) {
-                          try {
-                            // 既存のプロジェクトを更新
-                            final updatedProject = widget.project!.copyWith(
-                              customStitches: _projectCustomStitches,
-                              updatedAt: DateTime.now(),
-                            );
-                            final isPremium =
-                                context.read<SubscriptionProvider>().isPremium;
-                            final success = await _storageService.saveProject(
-                                updatedProject,
-                                isPremium: isPremium);
-                            if (success) {
-                              print('✅ プロジェクト固有の編み目設定を保存しました');
-                            } else {
-                              print('❌ プロジェクト固有の編み目設定の保存に失敗しました');
-                            }
-                          } catch (e) {
-                            print('❌ プロジェクト固有の編み目設定の保存に失敗しました: $e');
-                          }
-                        }
-
-                        // UIを強制的に更新
-                        if (mounted) {
-                          setState(() {
-                            _stitchGridKey++;
-                          });
-
-                          // 少し待ってから再度更新（確実に反映させるため）
-                          await Future.delayed(
-                              const Duration(milliseconds: 100));
-                          if (mounted) {
-                            setState(() {});
-                          }
-
-                          // さらに少し待ってから最終確認
-                          await Future.delayed(
-                              const Duration(milliseconds: 200));
-                          if (mounted) {
-                            setState(() {});
-                            print('✅ 編み目設定変更後のUI更新完了');
-                          }
-                        }
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                    ControlButtons(
-                      onRemoveStitch: _removeLastStitch,
-                      onCompleteRow: _completeRow,
-                      onReset: _resetAll,
-                      canRemoveStitch: _stitchCount > 0,
-                      canCompleteRow: _stitchCount > 0,
-                    ),
-                  ],
-                ),
-              ),
-              // バナー広告を一番下に固定配置（プレミアムでない場合のみ表示）
-              if (!context.watch<SubscriptionProvider>().isPremium &&
-                  _isBannerAdLoaded &&
-                  _bannerAd != null)
-                Container(
-                  width: _bannerAd!.size.width.toDouble(),
-                  height: _bannerAd!.size.height.toDouble(),
-                  child: AdWidget(ad: _bannerAd!),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
+  /// リセット用報酬広告の表示
+  void _showRewardedAdForReset() {
+    if (_isRewardedAdLoaded && _rewardedAd != null) {
+      _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
+        onAdDismissedFullScreenContent: (ad) {
+          ad.dispose();
+          _resetAll();
+          _loadRewardedAd();
+        },
+        onAdFailedToShowFullScreenContent: (ad, error) {
+          ad.dispose();
+          _resetAll();
+          _loadRewardedAd();
+        },
+      );
+      _rewardedAd!.show(
+        onUserEarnedReward: (ad, reward) {
+          // 報酬付与
+        },
+      );
+    } else {
+      _resetAll();
+    }
   }
 
   @override
