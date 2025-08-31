@@ -6,9 +6,17 @@ class SubscriptionProvider extends ChangeNotifier {
   bool _isPremium = false;
   String? _activeSubscriptionId;
   DateTime? _subscriptionExpiryDate;
+  DateTime? _trialStartDate;
+  DateTime? _trialEndDate;
+  bool _isInTrialPeriod = false;
+  bool _hasUsedTrial = false;
   static const String _premiumKey = 'is_premium';
   static const String _subscriptionIdKey = 'subscription_id';
   static const String _expiryDateKey = 'subscription_expiry';
+  static const String _trialStartKey = 'trial_start_date';
+  static const String _trialEndKey = 'trial_end_date';
+  static const String _isInTrialKey = 'is_in_trial';
+  static const String _hasUsedTrialKey = 'has_used_trial';
 
   bool get isPremium {
     print('=== SubscriptionProvider.isPremium called ===');
@@ -20,6 +28,27 @@ class SubscriptionProvider extends ChangeNotifier {
 
   String? get activeSubscriptionId => _activeSubscriptionId;
   DateTime? get subscriptionExpiryDate => _subscriptionExpiryDate;
+  DateTime? get trialStartDate => _trialStartDate;
+  DateTime? get trialEndDate => _trialEndDate;
+  bool get isInTrialPeriod => _isInTrialPeriod;
+  bool get hasUsedTrial => _hasUsedTrial;
+  
+  // トライアル期間が有効かどうかをチェック
+  bool get isTrialActive {
+    if (!_isInTrialPeriod || _trialEndDate == null) {
+      return false;
+    }
+    return DateTime.now().isBefore(_trialEndDate!);
+  }
+  
+  // トライアル期間の残り日数を取得
+  int get trialDaysRemaining {
+    if (!_isInTrialPeriod || _trialEndDate == null) {
+      return 0;
+    }
+    final remaining = _trialEndDate!.difference(DateTime.now()).inDays;
+    return remaining > 0 ? remaining : 0;
+  }
 
   // サブスクリプション状態をセット
   void setPremium(bool value,
@@ -44,6 +73,9 @@ class SubscriptionProvider extends ChangeNotifier {
       } else {
         await prefs.remove(_expiryDateKey);
       }
+      
+      // トライアル期間情報も永続化
+      await _saveTrialStatus(prefs);
       print('プレミアム状態を永続化: $value, サブスクID: $subscriptionId, 有効期限: $expiryDate');
     } catch (e) {
       print('プレミアム状態の永続化エラー: $e');
@@ -62,6 +94,9 @@ class SubscriptionProvider extends ChangeNotifier {
       _isPremium = savedPremium ?? false;
       _activeSubscriptionId = prefs.getString(_subscriptionIdKey);
       final expiryString = prefs.getString(_expiryDateKey);
+      
+      // トライアル期間情報を読み込み
+      await _loadTrialStatus(prefs);
 
       print('読み込まれた値:');
       print('  _isPremium: $_isPremium');
@@ -114,6 +149,16 @@ class SubscriptionProvider extends ChangeNotifier {
       await prefs.setBool(_premiumKey, false);
       await prefs.remove(_subscriptionIdKey);
       await prefs.remove(_expiryDateKey);
+      
+      // トライアル期間もリセット（通常のサブスクリプション終了時）
+      if (_isInTrialPeriod) {
+        _isInTrialPeriod = false;
+        _trialStartDate = null;
+        _trialEndDate = null;
+        await prefs.setBool(_isInTrialKey, false);
+        await prefs.remove(_trialStartKey);
+        await prefs.remove(_trialEndKey);
+      }
       print('サブスクリプションをキャンセルしました');
     } catch (e) {
       print('サブスクリプションキャンセル時の永続化エラー: $e');
@@ -136,7 +181,11 @@ class SubscriptionProvider extends ChangeNotifier {
         'hasActiveSubscription': _isPremium,
         'subscriptionId': _activeSubscriptionId,
         'expiryDate': _subscriptionExpiryDate?.toIso8601String(),
-        'isValid': isSubscriptionValid()
+        'isValid': isSubscriptionValid(),
+        'isInTrialPeriod': _isInTrialPeriod,
+        'isTrialActive': isTrialActive,
+        'trialDaysRemaining': trialDaysRemaining,
+        'hasUsedTrial': _hasUsedTrial
       };
     } catch (e) {
       return {'available': false, 'error': '支払い状況の確認中にエラーが発生しました: $e'};
@@ -161,9 +210,118 @@ class SubscriptionProvider extends ChangeNotifier {
 
   // サブスクリプションが有効かどうかをチェック
   bool isSubscriptionValid() {
+    // トライアル期間中の場合
+    if (_isInTrialPeriod && isTrialActive) {
+      return true;
+    }
+    
+    // 通常のサブスクリプション判定
     if (!_isPremium || _subscriptionExpiryDate == null) {
       return false;
     }
     return DateTime.now().isBefore(_subscriptionExpiryDate!);
+  }
+  
+  // 無料トライアルを開始
+  Future<void> startFreeTrial() async {
+    print('無料トライアルを開始します');
+    final now = DateTime.now();
+    _trialStartDate = now;
+    _trialEndDate = now.add(const Duration(days: 7)); // 7日間の無料トライアル
+    _isInTrialPeriod = true;
+    _hasUsedTrial = true;
+    _isPremium = true; // トライアル期間中はプレミアム機能を利用可能
+    
+    print('トライアル開始日: $_trialStartDate');
+    print('トライアル終了日: $_trialEndDate');
+    
+    notifyListeners();
+    
+    // 永続化
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await _saveTrialStatus(prefs);
+      await prefs.setBool(_premiumKey, true);
+      print('無料トライアル情報を永続化しました');
+    } catch (e) {
+      print('無料トライアル情報の永続化エラー: $e');
+    }
+  }
+  
+  // トライアル期間の有効性をチェック
+  Future<void> checkTrialStatus() async {
+    print('トライアル期間の有効性をチェック中');
+    if (_isInTrialPeriod && _trialEndDate != null) {
+      final now = DateTime.now();
+      if (now.isAfter(_trialEndDate!)) {
+        print('トライアル期間が終了しました');
+        await _endFreeTrial();
+      } else {
+        print('トライアル期間中です。残り${trialDaysRemaining}日');
+      }
+    }
+  }
+  
+  // 無料トライアル終了処理
+  Future<void> _endFreeTrial() async {
+    print('無料トライアル期間を終了します');
+    _isInTrialPeriod = false;
+    
+    // 有効なサブスクリプションがない場合はプレミアムステータスを無効化
+    if (_activeSubscriptionId == null || !isSubscriptionValid()) {
+      _isPremium = false;
+    }
+    
+    notifyListeners();
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_isInTrialKey, false);
+      if (!_isPremium) {
+        await prefs.setBool(_premiumKey, false);
+      }
+      print('トライアル終了処理を完了しました');
+    } catch (e) {
+      print('トライアル終了処理エラー: $e');
+    }
+  }
+  
+  // トライアル情報を永続化
+  Future<void> _saveTrialStatus(SharedPreferences prefs) async {
+    if (_trialStartDate != null) {
+      await prefs.setString(_trialStartKey, _trialStartDate!.toIso8601String());
+    }
+    if (_trialEndDate != null) {
+      await prefs.setString(_trialEndKey, _trialEndDate!.toIso8601String());
+    }
+    await prefs.setBool(_isInTrialKey, _isInTrialPeriod);
+    await prefs.setBool(_hasUsedTrialKey, _hasUsedTrial);
+  }
+  
+  // トライアル情報を読み込み
+  Future<void> _loadTrialStatus(SharedPreferences prefs) async {
+    final trialStartString = prefs.getString(_trialStartKey);
+    final trialEndString = prefs.getString(_trialEndKey);
+    
+    if (trialStartString != null) {
+      _trialStartDate = DateTime.parse(trialStartString);
+    }
+    if (trialEndString != null) {
+      _trialEndDate = DateTime.parse(trialEndString);
+    }
+    
+    _isInTrialPeriod = prefs.getBool(_isInTrialKey) ?? false;
+    _hasUsedTrial = prefs.getBool(_hasUsedTrialKey) ?? false;
+    
+    print('トライアル情報読み込み完了:');
+    print('  _trialStartDate: $_trialStartDate');
+    print('  _trialEndDate: $_trialEndDate');
+    print('  _isInTrialPeriod: $_isInTrialPeriod');
+    print('  _hasUsedTrial: $_hasUsedTrial');
+    
+    // トライアル期間の有効性をチェック
+    if (_isInTrialPeriod) {
+      await checkTrialStatus();
+    }
   }
 }

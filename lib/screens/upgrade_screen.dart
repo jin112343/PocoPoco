@@ -313,10 +313,22 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       planColor = const Color(0xFFEC407A);
       features = ['無制限の編み目カウント', 'カスタム編み目設定', '広告なし'];
     } else if (product.id == 'yearly_sub') {
+      final subscriptionProvider = context.watch<SubscriptionProvider>();
+      final canUseTrial = !subscriptionProvider.hasUsedTrial;
+      
       planName = '年間プラン';
-      planDescription = '年間3000円でプレミアム機能を利用（月額250円相当）';
+      if (canUseTrial) {
+        planDescription = '最初の7日間無料トライアル、その後年間3000円（月額250円相当）';
+      } else {
+        planDescription = '年間3000円でプレミアム機能を利用（月額250円相当）';
+      }
       planColor = const Color(0xFF9C27B0);
       features = ['無制限の編み目カウント', 'カスタム編み目設定', '広告なし'];
+      
+      // トライアル対象の場合の特典を追加
+      if (canUseTrial) {
+        features.insert(0, '7日間無料トライアル');
+      }
     }
 
     return Container(
@@ -380,25 +392,60 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                 ),
                 if (product.id == 'yearly_sub' ||
                     product.id == 'android.test.purchased')
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Colors.orange, Colors.deepOrange],
+                  Row(
+                    children: [
+                      // お得バッジ
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: [Colors.orange, Colors.deepOrange],
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text(
+                          'お得',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      'お得',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                      // 無料トライアルバッジ（年間プランで未使用の場合）
+                      if (product.id == 'yearly_sub')
+                        Consumer<SubscriptionProvider>(
+                          builder: (context, provider, child) {
+                            if (!provider.hasUsedTrial) {
+                              return Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [Colors.green, Colors.teal],
+                                  ),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Text(
+                                  '7日間無料',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                    ],
                   ),
               ],
             ),
@@ -448,27 +495,34 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                   ],
                 ),
                 if (!_purchasePending && product.id.isNotEmpty)
-                  ElevatedButton(
-                    onPressed: () => _buy(product),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: planColor,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 32,
-                        vertical: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(25),
-                      ),
-                      elevation: 4,
-                    ),
-                    child: const Text(
-                      '購入',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                  Consumer<SubscriptionProvider>(
+                    builder: (context, provider, child) {
+                      final isYearlyPlan = product.id == 'yearly_sub';
+                      final canUseTrial = !provider.hasUsedTrial && isYearlyPlan;
+                      
+                      return ElevatedButton(
+                        onPressed: () => _buy(product),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: planColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                          elevation: 4,
+                        ),
+                        child: Text(
+                          canUseTrial ? '無料で始める' : '購入',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 if (_purchasePending)
                   const SizedBox(
@@ -624,7 +678,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                           const SizedBox(height: 8),
                                           Text(
                                             '• 月額プラン：300円/月（自動更新）\n'
-                                            '• 年間プラン：3000円/年（自動更新、月額250円相当）\n'
+                                            '• 年間プラン：7日間無料トライアル、その後3000円/年（自動更新、月額250円相当）\n'
+                                            '• 無料トライアルは1回のみ利用可能です\n'
+                                            '• トライアル期間終了24時間前までにキャンセルすれば課金されません\n'
                                             '• サブスクリプションはApp Storeの設定からキャンセルできます\n'
                                             '• キャンセルしない限り、自動的に更新されます\n'
                                             '• 購入履歴の復元が可能です\n'
@@ -980,13 +1036,24 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       print('既存のサブスクリプションを確認中...');
       final subscriptionProvider = context.read<SubscriptionProvider>();
 
+      // トライアル期間の状態をチェック
+      await subscriptionProvider.checkTrialStatus();
+
       // 現在のプレミアム状態を確認
       if (subscriptionProvider.isPremium) {
         print('既にプレミアム状態です');
-        setState(() {
-          _activePlan = subscriptionProvider.activeSubscriptionId ?? 'unknown';
-          _loading = false;
-        });
+        if (subscriptionProvider.isInTrialPeriod) {
+          print('無料トライアル期間中です。残り${subscriptionProvider.trialDaysRemaining}日');
+          setState(() {
+            _activePlan = '無料トライアル（残り${subscriptionProvider.trialDaysRemaining}日）';
+            _loading = false;
+          });
+        } else {
+          setState(() {
+            _activePlan = subscriptionProvider.activeSubscriptionId ?? 'unknown';
+            _loading = false;
+          });
+        }
       } else {
         print('プレミアム状態ではありません');
         setState(() {
