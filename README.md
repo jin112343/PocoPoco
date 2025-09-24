@@ -10,7 +10,7 @@
 
 ## App  URL
 ### ios
-
+https://apps.apple.com/jp/app/%E7%B7%A8%E3%81%BF%E7%89%A9%E3%82%AB%E3%82%A6%E3%83%B3%E3%82%BF%E3%83%BC%E3%82%BA/id6748490913
 
 ### android
 https://play.google.com/store/apps/details?id=com.mizoijin.pocopoco
