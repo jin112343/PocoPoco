@@ -29,8 +29,8 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   late Animation<Offset> _slideAnimation;
 
   static const List<String> _kProductIds = <String>[
-    'monthly_sub', // 月額サブスクリプション
-    'yearly_sub', // 年間サブスクリプション
+    'monthly-sub', // 月額サブスクリプション
+    'yearly-sub', // 年間サブスクリプション
   ];
 
   @override
@@ -136,9 +136,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
 
           // 有効期限を計算
           DateTime? expiryDate;
-          if (purchaseDetails.productID == 'monthly_sub') {
+          if (purchaseDetails.productID == 'monthly-sub') {
             expiryDate = DateTime.now().add(const Duration(days: 30));
-          } else if (purchaseDetails.productID == 'yearly_sub') {
+          } else if (purchaseDetails.productID == 'yearly-sub') {
             expiryDate = DateTime.now().add(const Duration(days: 365));
           }
 
@@ -228,9 +228,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     final PurchaseParam purchaseParam = PurchaseParam(productDetails: product);
 
     try {
-      if (product.id == 'monthly_sub' || product.id == 'yearly_sub') {
-        // サブスクリプション商品
-        _iap.buyNonConsumable(purchaseParam: purchaseParam);
+      if (product.id == 'monthly-sub' || product.id == 'yearly-sub') {
+        // サブスクリプション商品 - buyConsumableを使用
+        _iap.buyConsumable(purchaseParam: purchaseParam);
       } else {
         setState(() {
           _error = '無効なプランです';
@@ -307,12 +307,12 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       planDescription = '開発環境用のテスト商品（購入キャンセル）';
       planColor = Colors.orange;
       features = ['テスト機能1', 'テスト機能2'];
-    } else if (product.id == 'monthly_sub') {
+    } else if (product.id == 'monthly-sub') {
       planName = '月額プラン';
       planDescription = '月額300円でプレミアム機能を利用';
       planColor = const Color(0xFFEC407A);
       features = ['無制限の編み目カウント', 'カスタム編み目設定', '広告なし'];
-    } else if (product.id == 'yearly_sub') {
+    } else if (product.id == 'yearly-sub') {
       planName = '年間プラン';
       planDescription = '年間3000円でプレミアム機能を利用（月額250円相当）';
       planColor = const Color(0xFF9C27B0);
@@ -351,7 +351,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                     borderRadius: BorderRadius.circular(25),
                   ),
                   child: Icon(
-                    product.id == 'yearly_sub' ? Icons.star : Icons.favorite,
+                    product.id == 'yearly-sub' ? Icons.star : Icons.favorite,
                     color: Colors.white,
                     size: 24,
                   ),
@@ -378,7 +378,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                     ],
                   ),
                 ),
-                if (product.id == 'yearly_sub' ||
+                if (product.id == 'yearly-sub' ||
                     product.id == 'android.test.purchased')
                   Container(
                     padding: const EdgeInsets.symmetric(
