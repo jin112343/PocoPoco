@@ -53,9 +53,16 @@ void main() async {
           final provider = SubscriptionProvider();
           // アプリ起動時にサブスクリプション状態を読み込み
           provider.loadStatus().then((_) {
+            // トライアル期間の状態をチェック
+            provider.checkTrialStatus();
+            // トライアル期間終了処理をチェック
+            provider.handleTrialExpiration();
+            
             // 定期的にサブスクリプションの有効性をチェック（1時間ごと）
             Future.delayed(const Duration(hours: 1), () {
               provider.loadStatus();
+              provider.checkTrialStatus();
+              provider.handleTrialExpiration();
             });
           });
           return provider;

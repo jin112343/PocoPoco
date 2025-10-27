@@ -222,12 +222,12 @@ class SubscriptionProvider extends ChangeNotifier {
     return DateTime.now().isBefore(_subscriptionExpiryDate!);
   }
   
-  // 無料トライアルを開始
+  // 無料トライアルを開始（年間プランのみ）
   Future<void> startFreeTrial() async {
-    print('無料トライアルを開始します');
+    print('無料トライアルを開始します（年間プラン）');
     final now = DateTime.now();
     _trialStartDate = now;
-    _trialEndDate = now.add(const Duration(days: 7)); // 7日間の無料トライアル
+    _trialEndDate = now.add(const Duration(days: 3)); // 3日間の無料トライアル
     _isInTrialPeriod = true;
     _hasUsedTrial = true;
     _isPremium = true; // トライアル期間中はプレミアム機能を利用可能
@@ -283,6 +283,26 @@ class SubscriptionProvider extends ChangeNotifier {
       print('トライアル終了処理を完了しました');
     } catch (e) {
       print('トライアル終了処理エラー: $e');
+    }
+  }
+  
+  // トライアル期間終了後の自動課金処理
+  Future<void> handleTrialExpiration() async {
+    if (!_isInTrialPeriod || _trialEndDate == null) {
+      return;
+    }
+    
+    final now = DateTime.now();
+    if (now.isAfter(_trialEndDate!)) {
+      print('トライアル期間が終了しました。自動課金処理を開始します');
+      
+      // トライアル期間を終了
+      await _endFreeTrial();
+      
+      // 年間サブスクリプションの自動課金を開始
+      // 注意: 実際の課金処理はApp Store/Google Playの仕組みに依存します
+      // ここでは、ユーザーに課金が必要であることを通知する処理を行います
+      print('年間サブスクリプションの自動課金が必要です');
     }
   }
   

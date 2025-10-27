@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
@@ -28,10 +29,15 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  static const List<String> _kProductIds = <String>[
-    'monthly-sub', // 月額サブスクリプション
-    'yearly-sub', // 年間サブスクリプション
-  ];
+  static List<String> get _kProductIds {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return [
+        'yearly_sub', // 年間サブスクリプション（iOSのみ）
+        'monthly_sub', // 月額サブスクリプション（iOSのみ）
+      ];
+    }
+    return [];
+  }
 
   @override
   void initState() {
@@ -134,21 +140,32 @@ class _UpgradeScreenState extends State<UpgradeScreen>
           // 購入成功または復元成功
           print('購入成功: ${purchaseDetails.productID}');
 
-          // 有効期限を計算
-          DateTime? expiryDate;
-          if (purchaseDetails.productID == 'monthly-sub') {
-            expiryDate = DateTime.now().add(const Duration(days: 30));
-          } else if (purchaseDetails.productID == 'yearly-sub') {
-            expiryDate = DateTime.now().add(const Duration(days: 365));
-          }
-
           // プレミアム状態を更新
           final subscriptionProvider = context.read<SubscriptionProvider>();
-          subscriptionProvider.setPremium(
-            true,
-            subscriptionId: purchaseDetails.productID,
-            expiryDate: expiryDate,
-          );
+          
+          if (purchaseDetails.productID == 'yearly_sub') {
+            // 年間プランの場合、トライアルを開始
+            if (!subscriptionProvider.hasUsedTrial) {
+              await subscriptionProvider.startFreeTrial();
+              print('年間プランの無料トライアルを開始しました');
+            } else {
+              // トライアル使用済みの場合は通常のサブスクリプションとして処理
+              final expiryDate = DateTime.now().add(const Duration(days: 365));
+              subscriptionProvider.setPremium(
+                true,
+                subscriptionId: purchaseDetails.productID,
+                expiryDate: expiryDate,
+              );
+            }
+          } else if (purchaseDetails.productID == 'monthly_sub') {
+            // 月額プランの場合は通常のサブスクリプションとして処理
+            final expiryDate = DateTime.now().add(const Duration(days: 30));
+            subscriptionProvider.setPremium(
+              true,
+              subscriptionId: purchaseDetails.productID,
+              expiryDate: expiryDate,
+            );
+          }
 
           setState(() {
             _activePlan = purchaseDetails.productID;
@@ -228,7 +245,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     final PurchaseParam purchaseParam = PurchaseParam(productDetails: product);
 
     try {
-      if (product.id == 'monthly-sub' || product.id == 'yearly-sub') {
+      if (product.id == 'monthly_sub' || product.id == 'yearly_sub') {
         // サブスクリプション商品 - buyConsumableを使用
         _iap.buyConsumable(purchaseParam: purchaseParam);
       } else {
@@ -318,7 +335,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       
       planName = '年間プラン';
       if (canUseTrial) {
-        planDescription = '最初の7日間無料トライアル、その後年間3000円（月額250円相当）';
+        planDescription = '最初の3日間無料トライアル、その後年間3000円（月額250円相当）';
       } else {
         planDescription = '年間3000円でプレミアム機能を利用（月額250円相当）';
       }
@@ -327,7 +344,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       
       // トライアル対象の場合の特典を追加
       if (canUseTrial) {
-        features.insert(0, '7日間無料トライアル');
+        features.insert(0, '3日間無料トライアル');
       }
     }
 
@@ -390,7 +407,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                     ],
                   ),
                 ),
-                if (product.id == 'yearly-sub' ||
+                if (product.id == 'yearly_sub' ||
                     product.id == 'android.test.purchased')
                   Row(
                     children: [
@@ -416,7 +433,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                         ),
                       ),
                       // 無料トライアルバッジ（年間プランで未使用の場合）
-                      if (product.id == 'yearly-sub')
+                      if (product.id == 'yearly_sub')
                         Consumer<SubscriptionProvider>(
                           builder: (context, provider, child) {
                             if (!provider.hasUsedTrial) {
@@ -433,7 +450,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: const Text(
-                                  '7日間無料',
+                                  '3日間無料',
                                   style: TextStyle(
                                     color: Colors.white,
                                     fontSize: 12,
@@ -678,7 +695,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                           const SizedBox(height: 8),
                                           Text(
                                             '• 月額プラン：300円/月（自動更新）\n'
-                                            '• 年間プラン：7日間無料トライアル、その後3000円/年（自動更新、月額250円相当）\n'
+                                            '• 年間プラン：3日間無料トライアル、その後3000円/年（自動更新、月額250円相当）\n'
                                             '• 無料トライアルは1回のみ利用可能です\n'
                                             '• トライアル期間終了24時間前までにキャンセルすれば課金されません\n'
                                             '• サブスクリプションはApp Storeの設定からキャンセルできます\n'
@@ -698,93 +715,137 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                               ),
                               const SizedBox(height: 24),
 
-                              // プラン選択
-                              ..._products
-                                  .map((product) => _buildPlanCard(product)),
-
-                              // 管理ボタン群
-                              const SizedBox(height: 24),
-                              Center(
-                                child: Column(
-                                  children: [
-                                    // 支払い状況確認ボタン
-                                    TextButton.icon(
-                                      onPressed:
-                                          _loading ? null : _checkPaymentStatus,
-                                      icon: _loading
-                                          ? const SizedBox(
-                                              width: 16,
-                                              height: 16,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                          : const Icon(Icons.payment),
-                                      label: Text(
-                                          _loading ? '確認中...' : '支払い状況を確認'),
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 24,
-                                          vertical: 12,
+                              // プラン選択（iOSのみ）
+                              if (defaultTargetPlatform == TargetPlatform.iOS)
+                                ..._products
+                                    .map((product) => _buildPlanCard(product))
+                              else
+                                Container(
+                                  padding: const EdgeInsets.all(24),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey[100],
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(
+                                      color: Colors.grey[300] ?? Colors.grey,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline,
+                                        size: 48,
+                                        color: Colors.grey[600],
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'サブスクリプション機能',
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey[700],
                                         ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 16),
-
-                                    // 購入復元ボタン
-                                    TextButton.icon(
-                                      onPressed: _restorePending
-                                          ? null
-                                          : _restorePurchases,
-                                      icon: _restorePending
-                                          ? const SizedBox(
-                                              width: 16,
-                                              height: 16,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                          : const Icon(Icons.restore),
-                                      label: Text(
-                                          _restorePending ? '復元中...' : '購入履歴を復元'),
-                                      style: TextButton.styleFrom(
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 24,
-                                          vertical: 12,
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '現在、サブスクリプション機能はiOSでのみ利用可能です。',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: Colors.grey[600],
                                         ),
+                                        textAlign: TextAlign.center,
                                       ),
-                                    ),
-                                    const SizedBox(height: 16),
+                                    ],
+                                  ),
+                                ),
 
-                                    // サブスクリプションキャンセルボタン（アクティブな場合のみ表示）
-                                    if (_activePlan != null)
+                              // 管理ボタン群（iOSのみ）
+                              if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                                const SizedBox(height: 24),
+                                Center(
+                                  child: Column(
+                                    children: [
+                                      // 支払い状況確認ボタン
                                       TextButton.icon(
-                                        onPressed: _cancelSubscription,
-                                        icon: const Icon(Icons.cancel),
-                                        label: const Text('サブスクリプションをキャンセル'),
+                                        onPressed:
+                                            _loading ? null : _checkPaymentStatus,
+                                        icon: _loading
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              )
+                                            : const Icon(Icons.payment),
+                                        label: Text(
+                                            _loading ? '確認中...' : '支払い状況を確認'),
                                         style: TextButton.styleFrom(
-                                          foregroundColor: Colors.red[300],
+                                          foregroundColor: Colors.white,
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 24,
                                             vertical: 12,
                                           ),
                                         ),
                                       ),
+                                      const SizedBox(height: 16),
 
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      '支払い状況の確認や購入履歴の復元ができます',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.white.withOpacity(0.8),
+                                      // 購入復元ボタン
+                                      TextButton.icon(
+                                        onPressed: _restorePending
+                                            ? null
+                                            : _restorePurchases,
+                                        icon: _restorePending
+                                            ? const SizedBox(
+                                                width: 16,
+                                                height: 16,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                ),
+                                              )
+                                            : const Icon(Icons.restore),
+                                        label: Text(
+                                            _restorePending ? '復元中...' : '購入履歴を復元'),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 24,
+                                            vertical: 12,
+                                          ),
+                                        ),
                                       ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                    const SizedBox(height: 24),
+                                      const SizedBox(height: 16),
 
-                                                                  // 利用規約とプライバシーポリシーのリンク
+                                      // サブスクリプションキャンセルボタン（アクティブな場合のみ表示）
+                                      if (_activePlan != null)
+                                        TextButton.icon(
+                                          onPressed: _cancelSubscription,
+                                          icon: const Icon(Icons.cancel),
+                                          label: const Text('サブスクリプションをキャンセル'),
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: Colors.red[300],
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 24,
+                                              vertical: 12,
+                                            ),
+                                          ),
+                                        ),
+
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '支払い状況の確認や購入履歴の復元ができます',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.white.withOpacity(0.8),
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 24),
+                                    ],
+                                  ),
+                                ),
+                              ],
+
+                              // 利用規約とプライバシーポリシーのリンク
                               Container(
                                 margin: const EdgeInsets.only(top: 16),
                                 padding: const EdgeInsets.all(16),
@@ -848,9 +909,6 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
-                              ),
                                   ],
                                 ),
                               ),
