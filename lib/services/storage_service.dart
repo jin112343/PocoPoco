@@ -22,7 +22,6 @@ class StorageService {
     if (_prefs == null) {
       try {
         _prefs = await SharedPreferences.getInstance();
-        _logger.i('StorageService: SharedPreferences初期化成功');
       } catch (e, stackTrace) {
         _logger.e(
           'StorageService: SharedPreferences初期化失敗',
@@ -39,33 +38,25 @@ class StorageService {
     try {
       await _initPrefs();
       final projectsJson = _prefs!.getStringList(_projectsKey) ?? [];
-      _logger.i('getProjects: 保存されたプロジェクト数=${projectsJson.length}');
 
       final projects = <CrochetProject>[];
       for (int i = 0; i < projectsJson.length; i++) {
         try {
           final json = projectsJson[i];
-          _logger.d('getProjects: プロジェクト$i JSON解析開始');
           final project = CrochetProject.fromJson(jsonDecode(json));
           projects.add(project);
-          _logger.d('getProjects: プロジェクト$i 解析成功 title=${project.title}');
         } catch (e, stackTrace) {
           _logger.e(
             'getProjects: プロジェクト$i の解析に失敗',
             error: e,
             stackTrace: stackTrace,
           );
-          _logger.d('getProjects: 失敗したJSON=${projectsJson[i]}');
         }
       }
 
       projects.sort((a, b) =>
           b.updatedAt?.compareTo(a.updatedAt ?? a.createdAt) ??
           b.createdAt.compareTo(a.createdAt));
-      _logger.i('getProjects: プロジェクト一覧取得完了 count=${projects.length}');
-      for (int i = 0; i < projects.length; i++) {
-        _logger.d('getProjects:   $i: ${projects[i].title} id=${projects[i].id}');
-      }
       return projects;
     } catch (e, stackTrace) {
       _logger.e(
@@ -81,8 +72,6 @@ class StorageService {
   Future<bool> saveProject(CrochetProject project,
       {bool isPremium = false}) async {
     try {
-      _logger.i('=== saveProject: プロジェクト保存開始 ===');
-      _logger.i('saveProject: title=${project.title} id=${project.id} isPremium=$isPremium');
       await _initPrefs();
 
       final projects = await getProjects();
@@ -107,14 +96,24 @@ class StorageService {
           final p = projects[i];
           final json = jsonEncode(p.toJson());
           projectsJson.add(json);
-        } catch (e) {
+        } catch (e, stackTrace) {
+          _logger.e(
+            'saveProject: プロジェクト$i のJSON変換に失敗',
+            error: e,
+            stackTrace: stackTrace,
+          );
           return false;
         }
       }
 
       final success = await _prefs!.setStringList(_projectsKey, projectsJson);
       return success;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e(
+        'saveProject: プロジェクト保存に失敗',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -130,7 +129,12 @@ class StorageService {
       final projectsJson = projects.map((p) => jsonEncode(p.toJson())).toList();
 
       return await _prefs!.setStringList(_projectsKey, projectsJson);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e(
+        'deleteProject: プロジェクト削除に失敗',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -153,14 +157,24 @@ class StorageService {
           final p = projects[i];
           final json = jsonEncode(p.toJson());
           projectsJson.add(json);
-        } catch (e) {
+        } catch (e, stackTrace) {
+          _logger.e(
+            'saveProjects: プロジェクト$i のJSON変換に失敗',
+            error: e,
+            stackTrace: stackTrace,
+          );
           return false;
         }
       }
 
       final success = await _prefs!.setStringList(_projectsKey, projectsJson);
       return success;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _logger.e(
+        'saveProjects: プロジェクト一覧保存に失敗',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }

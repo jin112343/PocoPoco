@@ -23,12 +23,16 @@ void main() async {
     // SharedPreferencesの初期化
     await SharedPreferences.getInstance();
   } catch (e) {
+    // 初期化失敗は致命的ではないため、エラーを無視
+    debugPrint('SharedPreferences initialization failed: $e');
   }
 
   try {
     // Google Mobile Adsの初期化
     await MobileAds.instance.initialize();
   } catch (e) {
+    // 初期化失敗は致命的ではないため、エラーを無視
+    debugPrint('MobileAds initialization failed: $e');
   }
 
   runApp(
@@ -61,6 +65,8 @@ Future<void> requestTrackingPermissionIfNeeded() async {
       await AppTrackingTransparency.requestTrackingAuthorization();
     }
   } catch (e) {
+    // トラッキング許可リクエスト失敗は致命的ではないため、エラーを無視
+    debugPrint('ATT request failed: $e');
   }
 }
 
@@ -112,21 +118,9 @@ class _InitializationScreenState extends State<InitializationScreen> {
       final subscriptionProvider = context.read<SubscriptionProvider>();
       await subscriptionProvider.loadStatus();
 
-      // トライアル期間の状態をチェック
-      await subscriptionProvider.checkTrialStatus();
-
-      // トライアル期間終了処理をチェック
-      await subscriptionProvider.handleTrialExpiration();
-
-      // 定期的にサブスクリプションの有効性をチェック（1時間ごと）
-      _schedulePeriodicSubscriptionCheck(subscriptionProvider);
-
       // ATT許可リクエスト（少し遅延）
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 300));
       await requestTrackingPermissionIfNeeded();
-
-      // 最小表示時間を確保（スプラッシュが一瞬で消えないように）
-      await Future.delayed(const Duration(milliseconds: 500));
 
       // HomeScreenに遷移
       if (mounted) {
@@ -148,17 +142,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
     }
   }
 
-  void _schedulePeriodicSubscriptionCheck(SubscriptionProvider provider) {
-    Future.delayed(const Duration(hours: 1), () {
-      if (mounted) {
-        provider.loadStatus();
-        provider.checkTrialStatus();
-        provider.handleTrialExpiration();
-        _schedulePeriodicSubscriptionCheck(provider);
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -175,7 +158,7 @@ class _InitializationScreenState extends State<InitializationScreen> {
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),

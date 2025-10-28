@@ -62,14 +62,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _requestTrackingPermissionDelayed() async {
-    // アプリ起動から2秒後にATT許可を要求
-    await Future.delayed(const Duration(seconds: 2));
-    if (!_hasRequestedTracking) {
-      await _requestTrackingPermission();
-    }
-  }
-
   Future<void> _requestTrackingPermission() async {
     if (_hasRequestedTracking) return; // 既に要求済みの場合はスキップ
 
@@ -743,8 +735,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemCount: _projects.length,
                     itemBuilder: (context, index) {
                       final project = _projects[index];
-                      final lastModified =
-                          project.updatedAt ?? project.createdAt;
 
                       return Dismissible(
                         key: Key(project.id),

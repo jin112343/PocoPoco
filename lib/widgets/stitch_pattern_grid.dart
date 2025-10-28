@@ -35,7 +35,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   List<dynamic> _stitches = [];
   bool _isLoading = true;
   bool? _wasPremium; // 前回のプレミアム状態を記録
-  Map<dynamic, String> _stitchNameCache = {}; // 編み目名のキャッシュ
+  final Map<dynamic, String> _stitchNameCache = {}; // 編み目名のキャッシュ
   bool _hasTriedEasyLocalization = false; // EasyLocalization再試行フラグ
 
   @override
@@ -208,6 +208,19 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     return false;
   }
 
+  // ボタンの位置に基づいた固定色を取得
+  Color _getStitchColorByIndex(int index) {
+    final colors = [
+      Colors.blue,    // 0: 青
+      Colors.grey,    // 1: グレー
+      Colors.green,   // 2: 緑
+      Colors.orange,  // 3: オレンジ
+      Colors.purple,  // 4: 紫
+      Colors.red,     // 5: 赤
+    ];
+    return colors[index % colors.length];
+  }
+
   String _getStitchName(dynamic stitch) {
     // キャッシュをチェック
     if (_stitchNameCache.containsKey(stitch)) {
@@ -369,7 +382,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                         scrollDirection: Axis.vertical,
                         itemBuilder: (context, index) {
                           final stitch = _stitches[index];
-                          final isCustomStitch = stitch is CustomStitch;
+                          final buttonColor = _getStitchColorByIndex(index);
 
                           return Material(
                             color: Colors.transparent,
@@ -405,15 +418,10 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                               },
                               child: Container(
                                 decoration: BoxDecoration(
-                                  color: (isCustomStitch
-                                          ? stitch.color
-                                          : stitch.color)
-                                      .withValues(alpha: 0.1),
+                                  color: buttonColor.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color: isCustomStitch
-                                        ? stitch.color
-                                        : stitch.color,
+                                    color: buttonColor,
                                     width: 2,
                                   ),
                                 ),
@@ -444,9 +452,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                                       style: TextStyle(
                                                         fontSize: 18,
                                                         fontWeight: FontWeight.bold,
-                                                        color: isCustomStitch
-                                                            ? stitch.color
-                                                            : stitch.color,
+                                                        color: buttonColor,
                                                       ),
                                                     );
                                                   },
@@ -459,9 +465,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                                 style: TextStyle(
                                                   fontSize: 18,
                                                   fontWeight: FontWeight.bold,
-                                                  color: isCustomStitch
-                                                      ? stitch.color
-                                                      : stitch.color,
+                                                  color: buttonColor,
                                                 ),
                                               ),
                                       ),
@@ -473,9 +477,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
-                                          color: isCustomStitch
-                                              ? stitch.color
-                                              : stitch.color,
+                                          color: buttonColor,
                                         ),
                                         textAlign: TextAlign.center,
                                         maxLines: 2,
@@ -504,7 +506,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                       itemCount: _stitches.length,
                       itemBuilder: (context, index) {
                         final stitch = _stitches[index];
-                        final isCustomStitch = stitch is CustomStitch;
+                        final buttonColor = _getStitchColorByIndex(index);
 
                         return Material(
                           color: Colors.transparent,
@@ -553,15 +555,10 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                             },
                             child: Container(
                               decoration: BoxDecoration(
-                                color: (isCustomStitch
-                                        ? stitch.color
-                                        : stitch.color)
-                                    .withValues(alpha: 0.1),
+                                color: buttonColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
-                                  color: isCustomStitch
-                                      ? stitch.color
-                                      : stitch.color,
+                                  color: buttonColor,
                                   width: 2,
                                 ),
                               ),
@@ -592,9 +589,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                                   style: TextStyle(
                                                     fontSize: 18,
                                                     fontWeight: FontWeight.bold,
-                                                    color: isCustomStitch
-                                                        ? stitch.color
-                                                        : stitch.color,
+                                                    color: buttonColor,
                                                   ),
                                                 );
                                               },
@@ -607,9 +602,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                             style: TextStyle(
                                               fontSize: 18,
                                               fontWeight: FontWeight.bold,
-                                              color: isCustomStitch
-                                                  ? stitch.color
-                                                  : stitch.color,
+                                              color: buttonColor,
                                             ),
                                           ),
                                     ),
@@ -621,9 +614,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                       style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,
-                                        color: isCustomStitch
-                                            ? stitch.color
-                                            : stitch.color,
+                                        color: buttonColor,
                                       ),
                                       textAlign: TextAlign.center,
                                       maxLines: 2,
@@ -651,17 +642,17 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     final rows = (itemCount / 3).ceil();
 
     // 各ボタンの高さ（約80px）+ 行間のスペース（10px）+ パディング
-    final buttonHeight = 80.0;
-    final rowSpacing = 10.0;
-    final padding = 24.0; // 上下のパディング
+    const buttonHeight = 80.0;
+    const rowSpacing = 10.0;
+    const padding = 24.0; // 上下のパディング
 
     // 必要な高さを計算
     final calculatedHeight =
         (rows * buttonHeight) + ((rows - 1) * rowSpacing) + padding;
 
     // 最小高さと最大高さを設定
-    final minHeight = 200.0;
-    final maxHeight = 400.0;
+    const minHeight = 200.0;
+    const maxHeight = 400.0;
 
     return calculatedHeight.clamp(minHeight, maxHeight);
   }

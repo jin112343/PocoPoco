@@ -786,7 +786,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
           // ローディングオーバーレイ
           if (_isSaving || _isInitializing)
             Container(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withValues(alpha: 0.5),
               child: Center(
                 child: Card(
                   elevation: 8,
@@ -1056,64 +1056,6 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
           _logger.i('報酬広告視聴完了');
         },
       );
-    }
-  }
-
-  /// リセット時の報酬広告表示
-  void _showRewardedAdAndReset() {
-    final isPremium = _subscriptionProvider?.isPremium ?? false;
-    if (isPremium) {
-      _resetAll();
-      return;
-    }
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr('watch_ad_reset_title')),
-        content: Text(tr('watch_ad_reset_message')),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _resetAll();
-            },
-            child: Text(tr('no_thanks')),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _showRewardedAdForReset();
-            },
-            child: Text(tr('watch_ad')),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// リセット用報酬広告の表示
-  void _showRewardedAdForReset() {
-    if (_isRewardedAdLoaded && _rewardedAd != null) {
-      _rewardedAd!.fullScreenContentCallback = FullScreenContentCallback(
-        onAdDismissedFullScreenContent: (ad) {
-          ad.dispose();
-          _resetAll();
-          _loadRewardedAd();
-        },
-        onAdFailedToShowFullScreenContent: (ad, error) {
-          ad.dispose();
-          _resetAll();
-          _loadRewardedAd();
-        },
-      );
-      _rewardedAd!.show(
-        onUserEarnedReward: (ad, reward) {
-          // 報酬付与
-        },
-      );
-    } else {
-      _resetAll();
     }
   }
 

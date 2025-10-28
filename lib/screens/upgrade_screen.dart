@@ -279,7 +279,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: const Color(0xFFEC407A).withOpacity(0.1),
+              color: const Color(0xFFEC407A).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Icon(
@@ -387,14 +387,14 @@ class _UpgradeScreenState extends State<UpgradeScreen>
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: canUseTrial
-                  ? Colors.green.withOpacity(0.5)
-                  : planColor.withOpacity(0.3),
+                  ? Colors.green.withValues(alpha: 0.5)
+                  : planColor.withValues(alpha: 0.3),
               width: canUseTrial ? 3 : 2,
             ),
             boxShadow: [
               BoxShadow(
                 color:
-                    (canUseTrial ? Colors.green : planColor).withOpacity(0.2),
+                    (canUseTrial ? Colors.green : planColor).withValues(alpha: 0.2),
                 blurRadius: canUseTrial ? 20 : 10,
                 offset: const Offset(0, 4),
               ),
@@ -456,7 +456,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                           vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.2),
+                          color: Colors.white.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
@@ -554,10 +554,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.1),
+                          color: Colors.green.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: Colors.green.withOpacity(0.3),
+                            color: Colors.green.withValues(alpha: 0.3),
                           ),
                         ),
                         child: Column(
@@ -820,7 +820,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                               boxShadow: [
                                                 BoxShadow(
                                                   color: Colors.green
-                                                      .withOpacity(0.4),
+                                                      .withValues(alpha: 0.4),
                                                   blurRadius: 20,
                                                   offset: const Offset(0, 8),
                                                 ),
@@ -883,7 +883,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                                     boxShadow: [
                                                       BoxShadow(
                                                         color: Colors.black
-                                                            .withOpacity(0.1),
+                                                            .withValues(alpha: 0.1),
                                                         blurRadius: 8,
                                                         offset:
                                                             const Offset(0, 2),
@@ -928,7 +928,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                                       width: 1,
                                                       height: 40,
                                                       color: Colors.white
-                                                          .withOpacity(0.3),
+                                                          .withValues(alpha: 0.3),
                                                     ),
                                                     _buildBenefitItem(
                                                         Icons.notifications_off,
@@ -937,7 +937,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                                       width: 1,
                                                       height: 40,
                                                       color: Colors.white
-                                                          .withOpacity(0.3),
+                                                          .withValues(alpha: 0.3),
                                                     ),
                                                     _buildBenefitItem(
                                                         Icons.credit_card_off,
@@ -963,7 +963,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   borderRadius: BorderRadius.circular(24),
                                   boxShadow: [
                                     BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
+                                      color: Colors.black.withValues(alpha: 0.1),
                                       blurRadius: 20,
                                       offset: const Offset(0, 10),
                                     ),
@@ -1178,7 +1178,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                         '支払い状況の確認や購入履歴の復元ができます',
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: Colors.white.withOpacity(0.8),
+                                          color: Colors.white.withValues(alpha: 0.8),
                                         ),
                                         textAlign: TextAlign.center,
                                       ),
@@ -1193,10 +1193,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                 margin: const EdgeInsets.only(top: 16),
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.1),
+                                  color: Colors.white.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(12),
                                   border: Border.all(
-                                    color: Colors.white.withOpacity(0.2),
+                                    color: Colors.white.withValues(alpha: 0.2),
                                   ),
                                 ),
                                 child: Column(
@@ -1262,10 +1262,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   margin: const EdgeInsets.only(top: 16),
                                   padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: Colors.red.withOpacity(0.1),
+                                    color: Colors.red.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: Colors.red.withOpacity(0.3),
+                                      color: Colors.red.withValues(alpha: 0.3),
                                     ),
                                   ),
                                   child: Row(
@@ -1294,10 +1294,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   margin: const EdgeInsets.only(top: 16),
                                   padding: const EdgeInsets.all(16),
                                   decoration: BoxDecoration(
-                                    color: Colors.green.withOpacity(0.1),
+                                    color: Colors.green.withValues(alpha: 0.1),
                                     borderRadius: BorderRadius.circular(12),
                                     border: Border.all(
-                                      color: Colors.green.withOpacity(0.3),
+                                      color: Colors.green.withValues(alpha: 0.3),
                                     ),
                                   ),
                                   child: Row(

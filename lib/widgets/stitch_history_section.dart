@@ -31,13 +31,11 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _rowKeys = {};
   final Map<int, ScrollController> _horizontalScrollControllers = {};
-  int _lastHistoryLength = 0;
   int _lastMaxRow = 0;
 
   @override
   void initState() {
     super.initState();
-    _lastHistoryLength = widget.stitchHistory.length;
     _lastMaxRow = _getMaxRow();
   }
 
@@ -71,17 +69,9 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       });
     }
 
-    // 編み目が追加された場合、一番右の最新を表示するために自動スクロール
-    if (currentHistoryLength > _lastHistoryLength) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToLatestStitch();
-      });
-    }
-
     // 削除された段のキーとコントローラーをクリーンアップ
     _cleanupRemovedRows();
 
-    _lastHistoryLength = currentHistoryLength;
     _lastMaxRow = currentMaxRow;
   }
 
@@ -170,31 +160,42 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     }
   }
 
-  void _scrollToLatestStitch() {
+
+
+  // ボタンの位置に基づいた固定色を取得（stitch_pattern_grid.dartと同じロジック）
+  Color _getStitchColorByIndex(int index) {
+    final colors = [
+      Colors.blue,    // 0: 青
+      Colors.grey,    // 1: グレー
+      Colors.green,   // 2: 緑
+      Colors.orange,  // 3: オレンジ
+      Colors.purple,  // 4: 紫
+      Colors.red,     // 5: 赤
+    ];
+    return colors[index % colors.length];
+  }
+
+  // 編み目のインデックスを取得
+  int _getStitchIndexInCurrentList(dynamic stitchObj) {
     try {
-      if (widget.stitchHistory.isEmpty) return;
-
-      // 最新の段を取得
-      final latestRow = widget.stitchHistory.last['row'] as int;
-      final controller = _horizontalScrollControllers[latestRow];
-
-      if (controller != null && controller.hasClients) {
-        final position = controller.position;
-        final maxScrollExtent = position.maxScrollExtent;
-
-        if (maxScrollExtent > 0) {
-          // 一番右の最新を表示するために最右端までスクロール
-          controller.jumpTo(maxScrollExtent);
+      final index = widget.currentStitches.indexWhere((s) {
+        if (stitchObj is CrochetStitch && s is CrochetStitch) {
+          return s.nameJa == stitchObj.nameJa;
+        } else if (stitchObj is CustomStitch && s is CustomStitch) {
+          return s.nameJa == stitchObj.nameJa;
         }
-      }
+        return false;
+      });
+      return index >= 0 ? index : 0; // 見つからない場合は0を返す
     } catch (e) {
-      // エラーが発生した場合は無視（段が削除された可能性）
+      return 0;
     }
   }
 
   ScrollController _getHorizontalScrollController(int row) {
-    return _horizontalScrollControllers.putIfAbsent(
-        row, () => ScrollController());
+    return _horizontalScrollControllers.putIfAbsent(row, () {
+      return ScrollController();
+    });
   }
 
   String _getStitchName(dynamic stitch) {
@@ -222,6 +223,28 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
 
   @override
   Widget build(BuildContext context) {
+    // build時に最新の編み目が右端に表示されるよう自動スクロール
+    if (widget.stitchHistory.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+
+        try {
+          final latestRow = widget.stitchHistory.last['row'] as int;
+          final controller = _horizontalScrollControllers[latestRow];
+
+          if (controller != null && controller.hasClients) {
+            final maxScrollExtent = controller.position.maxScrollExtent;
+            // 現在のスクロール位置が右端でない場合のみスクロール
+            if (maxScrollExtent > 0 && controller.offset < maxScrollExtent) {
+              controller.jumpTo(maxScrollExtent);
+            }
+          }
+        } catch (e) {
+          // スクロール中にエラーが発生した場合は無視
+        }
+      });
+    }
+
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -248,7 +271,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                 const SizedBox(width: 8),
                 Text(
                   '(全${widget.stitchHistory.length}目)',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 16,
                     color: Colors.grey,
                   ),
@@ -258,14 +281,14 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                     widget.currentStitchCount != null)
                   Text(
                     '${widget.currentRow}段目 ${widget.currentStitchCount}目',
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 16,
                       color: Colors.grey,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 if (widget.stitchHistory.isNotEmpty)
-                  Icon(
+                  const Icon(
                     Icons.swipe,
                     size: 18,
                     color: Colors.grey,
@@ -275,16 +298,16 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           ),
           Expanded(
             child: widget.stitchHistory.isEmpty
-                ? Center(
+                ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.timeline,
                           size: 64,
-                          color: const Color(0xFFE0E0E0),
+                          color: Color(0xFFE0E0E0),
                         ),
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20),
                         Text(
                           '編み目の履歴が表示されます\nタップで編み目を追加してください',
                           style: TextStyle(
@@ -325,6 +348,13 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
 
     for (final row in groupedHistory.keys.toList()..sort()) {
       final rowStitches = groupedHistory[row]!;
+
+      // position順にソート（昇順：1, 2, 3...）
+      rowStitches.sort((a, b) {
+        final posA = a['position'] as int;
+        final posB = b['position'] as int;
+        return posA.compareTo(posB);
+      });
 
       // 各段にキーを割り当て
       _rowKeys[row] = GlobalKey();
@@ -396,10 +426,10 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                     ),
                     child: Text(
                       '$row段',
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: const Color(0xFFAD1457),
+                        color: Color(0xFFAD1457),
                       ),
                     ),
                   ),
@@ -409,10 +439,13 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                 if (rowStitches.any((stitch) => stitch['position'] != 0))
                   SizedBox(
                     height: 80, // 固定高さで横スクロール
-                    child: SingleChildScrollView(
-                      controller: _getHorizontalScrollController(row),
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
+                    child: RepaintBoundary(
+                      child: SingleChildScrollView(
+                        controller: _getHorizontalScrollController(row),
+                        scrollDirection: Axis.horizontal,
+                        clipBehavior: Clip.hardEdge,
+                        physics: const ClampingScrollPhysics(),
+                        child: Row(
                         children: rowStitches
                             .where((stitch) =>
                                 stitch['position'] != 0) // 段開始フラグの編み目を除外
@@ -420,6 +453,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                           final dynamic stitchObj = _findStitchInCurrentList(
                               stitchData['stitch'], widget.currentStitches);
                           final position = stitchData['position'] as int;
+                          final stitchIndex = _getStitchIndexInCurrentList(stitchObj);
+                          final stitchColor = _getStitchColorByIndex(stitchIndex);
 
                                                   return Padding(
                           key: ValueKey('stitch_${row}_${position}_${stitchData['timestamp']?.millisecondsSinceEpoch ?? '${row}_$position'}'),
@@ -442,10 +477,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                                         ? BorderRadius.circular(24)
                                         : BorderRadius.circular(10),
                                     border: Border.all(
-                                      color: (stitchObj is CrochetStitch ||
-                                              stitchObj is CustomStitch)
-                                          ? stitchObj.color
-                                          : Colors.pink,
+                                      color: stitchColor,
                                       width: 3,
                                     ),
                                   ),
@@ -465,11 +497,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                                             style: TextStyle(
                                               fontSize: 20,
                                               fontWeight: FontWeight.bold,
-                                              color: (stitchObj
-                                                          is CrochetStitch ||
-                                                      stitchObj is CustomStitch)
-                                                  ? stitchObj.color
-                                                  : Colors.pink,
+                                              color: stitchColor,
                                             ),
                                           ),
                                   ),
@@ -477,7 +505,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                                 const SizedBox(height: 4),
                                 Text(
                                   '$position',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     fontSize: 14,
                                     color: Colors.grey,
                                     fontWeight: FontWeight.w600,
@@ -487,6 +515,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                             ),
                           );
                         }).toList(),
+                        ),
                       ),
                     ),
                   )
@@ -500,7 +529,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                       border: Border.all(
                           color: Colors.grey.withValues(alpha: 0.3), width: 1),
                     ),
-                    child: Row(
+                    child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
@@ -508,7 +537,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                           size: 24,
                           color: Colors.grey,
                         ),
-                        const SizedBox(width: 8),
+                        SizedBox(width: 8),
                         Text(
                           '編み目を追加してください',
                           style: TextStyle(

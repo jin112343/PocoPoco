@@ -102,11 +102,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     }
   }
 
-  // 表示用の編み目リスト（最大6つまで表示）
-  List<dynamic> get _displayStitches {
-    return _stitches.take(6).toList();
-  }
-
   // プレミアム編み目のリスト
   final List<Map<String, String>> _premiumStitches = [
     {

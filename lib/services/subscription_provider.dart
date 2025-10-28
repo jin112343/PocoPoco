@@ -20,13 +20,7 @@ class SubscriptionProvider extends ChangeNotifier {
   static const String _isInTrialKey = 'is_in_trial';
   static const String _hasUsedTrialKey = 'has_used_trial';
 
-  bool get isPremium {
-    logger.d('=== SubscriptionProvider.isPremium called ===');
-    logger.d('_isPremium: $_isPremium');
-    logger.d('_activeSubscriptionId: $_activeSubscriptionId');
-    logger.d('_subscriptionExpiryDate: $_subscriptionExpiryDate');
-    return _isPremium;
-  }
+  bool get isPremium => _isPremium;
 
   String? get activeSubscriptionId => _activeSubscriptionId;
   DateTime? get subscriptionExpiryDate => _subscriptionExpiryDate;
@@ -55,8 +49,6 @@ class SubscriptionProvider extends ChangeNotifier {
   // サブスクリプション状態をセット
   void setPremium(bool value,
       {String? subscriptionId, DateTime? expiryDate}) async {
-    logger.i(
-        'SubscriptionProvider.setPremium: プレミアム状態を設定 - value: $value, subscriptionId: $subscriptionId, expiryDate: $expiryDate');
     _isPremium = value;
     _activeSubscriptionId = subscriptionId;
     _subscriptionExpiryDate = expiryDate;
@@ -79,7 +71,6 @@ class SubscriptionProvider extends ChangeNotifier {
 
       // トライアル期間情報も永続化
       await _saveTrialStatus(prefs);
-      logger.i('SubscriptionProvider.setPremium: プレミアム状態を永続化完了');
     } catch (e, stackTrace) {
       logger.e('SubscriptionProvider.setPremium: プレミアム状態の永続化エラー',
           error: e, stackTrace: stackTrace);
@@ -89,13 +80,9 @@ class SubscriptionProvider extends ChangeNotifier {
   // サブスクリプション状態の永続化・復元
   Future<void> loadStatus() async {
     try {
-      logger.i('SubscriptionProvider.loadStatus: 状態復元開始');
       final prefs = await SharedPreferences.getInstance();
 
       final savedPremium = prefs.getBool(_premiumKey);
-      logger.d(
-          'SubscriptionProvider.loadStatus: SharedPreferencesから読み込んだプレミアム状態 - savedPremium: $savedPremium');
-
       _isPremium = savedPremium ?? false;
       _activeSubscriptionId = prefs.getString(_subscriptionIdKey);
       final expiryString = prefs.getString(_expiryDateKey);
@@ -103,21 +90,13 @@ class SubscriptionProvider extends ChangeNotifier {
       // トライアル期間情報を読み込み
       await _loadTrialStatus(prefs);
 
-      logger.d(
-          'SubscriptionProvider.loadStatus: 読み込まれた値 - _isPremium: $_isPremium, _activeSubscriptionId: $_activeSubscriptionId, expiryString: $expiryString');
-
       if (expiryString != null) {
         _subscriptionExpiryDate = DateTime.parse(expiryString);
-        logger.d(
-            'SubscriptionProvider.loadStatus: _subscriptionExpiryDate: $_subscriptionExpiryDate');
       }
 
       // 有効期限をチェック
-      logger.d('SubscriptionProvider.loadStatus: 有効期限チェック開始');
       await _checkSubscriptionValidity();
 
-      logger.i(
-          'SubscriptionProvider.loadStatus: プレミアム状態復元完了 - _isPremium: $_isPremium, subscriptionId: $_activeSubscriptionId, expiryDate: $_subscriptionExpiryDate');
       notifyListeners();
     } catch (e, stackTrace) {
       logger.e('SubscriptionProvider.loadStatus: プレミアム状態の復元エラー',
@@ -134,15 +113,12 @@ class SubscriptionProvider extends ChangeNotifier {
     if (_subscriptionExpiryDate != null &&
         DateTime.now().isAfter(_subscriptionExpiryDate!)) {
       // 有効期限が切れている場合
-      logger.w(
-          'SubscriptionProvider._checkSubscriptionValidity: サブスクリプションの有効期限が切れています - expiryDate: $_subscriptionExpiryDate');
       await _cancelSubscription();
     }
   }
 
   // サブスクリプションをキャンセル
   Future<void> _cancelSubscription() async {
-    logger.i('SubscriptionProvider._cancelSubscription: サブスクリプションキャンセル処理開始');
     _isPremium = false;
     _activeSubscriptionId = null;
     _subscriptionExpiryDate = null;
@@ -164,7 +140,6 @@ class SubscriptionProvider extends ChangeNotifier {
         await prefs.remove(_trialStartKey);
         await prefs.remove(_trialEndKey);
       }
-      logger.i('SubscriptionProvider._cancelSubscription: サブスクリプションキャンセル完了');
     } catch (e, stackTrace) {
       logger.e(
           'SubscriptionProvider._cancelSubscription: サブスクリプションキャンセル時の永続化エラー',
@@ -232,16 +207,12 @@ class SubscriptionProvider extends ChangeNotifier {
 
   // 無料トライアルを開始（年間プランのみ）
   Future<void> startFreeTrial() async {
-    logger.i('SubscriptionProvider.startFreeTrial: 無料トライアルを開始します（年間プラン）');
     final now = DateTime.now();
     _trialStartDate = now;
     _trialEndDate = now.add(const Duration(days: 3)); // 3日間の無料トライアル
     _isInTrialPeriod = true;
     _hasUsedTrial = true;
     _isPremium = true; // トライアル期間中はプレミアム機能を利用可能
-
-    logger.i(
-        'SubscriptionProvider.startFreeTrial: トライアル開始 - startDate: $_trialStartDate, endDate: $_trialEndDate');
 
     notifyListeners();
 
@@ -250,7 +221,6 @@ class SubscriptionProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await _saveTrialStatus(prefs);
       await prefs.setBool(_premiumKey, true);
-      logger.i('SubscriptionProvider.startFreeTrial: 無料トライアル情報を永続化しました');
     } catch (e, stackTrace) {
       logger.e('SubscriptionProvider.startFreeTrial: 無料トライアル情報の永続化エラー',
           error: e, stackTrace: stackTrace);
@@ -259,30 +229,21 @@ class SubscriptionProvider extends ChangeNotifier {
 
   // トライアル期間の有効性をチェック
   Future<void> checkTrialStatus() async {
-    logger.d('SubscriptionProvider.checkTrialStatus: トライアル期間の有効性をチェック中');
     if (_isInTrialPeriod && _trialEndDate != null) {
       final now = DateTime.now();
       if (now.isAfter(_trialEndDate!)) {
-        logger.w(
-            'SubscriptionProvider.checkTrialStatus: トライアル期間が終了しました - endDate: $_trialEndDate');
         await _endFreeTrial();
-      } else {
-        logger.i(
-            'SubscriptionProvider.checkTrialStatus: トライアル期間中です - 残り${trialDaysRemaining}日');
       }
     }
   }
 
   // 無料トライアル終了処理
   Future<void> _endFreeTrial() async {
-    logger.i('SubscriptionProvider._endFreeTrial: 無料トライアル期間を終了します');
     _isInTrialPeriod = false;
 
     // 有効なサブスクリプションがない場合はプレミアムステータスを無効化
     if (_activeSubscriptionId == null || !isSubscriptionValid()) {
       _isPremium = false;
-      logger.w(
-          'SubscriptionProvider._endFreeTrial: 有効なサブスクリプションがないため、プレミアムステータスを無効化しました');
     }
 
     notifyListeners();
@@ -293,7 +254,6 @@ class SubscriptionProvider extends ChangeNotifier {
       if (!_isPremium) {
         await prefs.setBool(_premiumKey, false);
       }
-      logger.i('SubscriptionProvider._endFreeTrial: トライアル終了処理を完了しました');
     } catch (e, stackTrace) {
       logger.e('SubscriptionProvider._endFreeTrial: トライアル終了処理エラー',
           error: e, stackTrace: stackTrace);
@@ -308,9 +268,6 @@ class SubscriptionProvider extends ChangeNotifier {
 
     final now = DateTime.now();
     if (now.isAfter(_trialEndDate!)) {
-      logger.w(
-          'SubscriptionProvider.handleTrialExpiration: トライアル期間が終了しました - 自動課金処理を開始します');
-
       try {
         // トライアル期間を終了
         await _endFreeTrial();
@@ -319,13 +276,8 @@ class SubscriptionProvider extends ChangeNotifier {
         // 注意: 実際の課金処理はApp Store/Google Playの仕組みに依存します
         final paymentStatus = await checkPaymentStatus();
 
-        if (paymentStatus['available'] == true &&
-            paymentStatus['hasActiveSubscription'] == true) {
-          logger.i(
-              'SubscriptionProvider.handleTrialExpiration: 有効なサブスクリプションが確認されました');
-        } else {
-          logger.w(
-              'SubscriptionProvider.handleTrialExpiration: 有効なサブスクリプションが見つかりません - ユーザーは無料プランに戻ります');
+        if (paymentStatus['available'] != true ||
+            paymentStatus['hasActiveSubscription'] != true) {
           // ユーザーに通知する必要がある場合は、ここでnotifyListeners()を呼び出します
           notifyListeners();
         }
@@ -374,9 +326,6 @@ class SubscriptionProvider extends ChangeNotifier {
     _isInTrialPeriod = prefs.getBool(_isInTrialKey) ?? false;
     _hasUsedTrial = prefs.getBool(_hasUsedTrialKey) ?? false;
 
-    logger.d(
-        'SubscriptionProvider._loadTrialStatus: トライアル情報読み込み完了 - startDate: $_trialStartDate, endDate: $_trialEndDate, isInTrialPeriod: $_isInTrialPeriod, hasUsedTrial: $_hasUsedTrial');
-
     // トライアル期間の有効性をチェック
     if (_isInTrialPeriod) {
       await checkTrialStatus();
@@ -385,7 +334,6 @@ class SubscriptionProvider extends ChangeNotifier {
 
   // デバッグ用：トライアル状態をリセット
   Future<void> resetTrialStatus() async {
-    logger.i('SubscriptionProvider.resetTrialStatus: トライアル状態をリセットします（デバッグ用）');
     _hasUsedTrial = false;
     _isInTrialPeriod = false;
     _trialStartDate = null;
@@ -399,7 +347,6 @@ class SubscriptionProvider extends ChangeNotifier {
       await prefs.setBool(_isInTrialKey, false);
       await prefs.remove(_trialStartKey);
       await prefs.remove(_trialEndKey);
-      logger.i('SubscriptionProvider.resetTrialStatus: トライアル状態のリセット完了');
     } catch (e, stackTrace) {
       logger.e('SubscriptionProvider.resetTrialStatus: トライアル状態のリセットエラー',
           error: e, stackTrace: stackTrace);

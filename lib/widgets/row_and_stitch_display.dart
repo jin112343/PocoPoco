@@ -42,18 +42,18 @@ class RowAndStitchDisplay extends StatelessWidget {
               children: [
                 Text(
                   '$rowNumber',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: const Color(0xFFAD1457),
+                    color: Color(0xFFAD1457),
                   ),
                 ),
-                Text(
+                const Text(
                   '段目',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: const Color(0xFFAD1457),
+                    color: Color(0xFFAD1457),
                   ),
                 ),
               ],
@@ -65,13 +65,13 @@ class RowAndStitchDisplay extends StatelessWidget {
             children: [
               Text(
                 '$stitchCount目',
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w600,
-                  color: const Color(0xFF1976D2),
+                  color: Color(0xFF1976D2),
                 ),
               ),
-              Text(
+              const Text(
                 '編み目数',
                 style: TextStyle(
                   fontSize: 20,
