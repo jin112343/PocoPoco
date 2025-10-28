@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:ui';
-import 'package:flutter/foundation.dart';
 import 'package:easy_localization/easy_localization.dart';
 
 enum CrochetStitch {
@@ -24,10 +22,19 @@ enum CrochetStitch {
   final Color color;
   final bool isOval;
 
-  String get name {
-    final locale = PlatformDispatcher.instance.locale.languageCode;
-    return locale == 'ja' ? nameJa : nameEn;
+  // BuildContextを使った名前取得（推奨）
+  String getName(BuildContext context) {
+    try {
+      final locale = context.locale.languageCode;
+      return locale == 'ja' ? nameJa : nameEn;
+    } catch (e) {
+      // EasyLocalizationがまだ初期化されていない場合は日本語をデフォルトで返す
+      return nameJa;
+    }
   }
+
+  // 後方互換性のため残す（デフォルトで日本語を返す）
+  String get name => nameJa;
 }
 
 // カスタム編み目を管理するためのクラス
@@ -51,9 +58,9 @@ class CustomStitch {
     return locale == 'ja' ? nameJa : nameEn;
   }
 
-  // 後方互換性のため残す（ただし英語を返す可能性がある）
+  // 後方互換性のため残す（デフォルトで日本語を返す）
   String get name {
-    return nameEn;
+    return nameJa;
   }
 
   // JSON変換用メソッド
@@ -64,7 +71,7 @@ class CustomStitch {
       'nameJa': nameJa,
       'nameEn': nameEn,
       'imagePath': imagePath ?? '',
-      'color': color.value,
+      'color': color.toARGB32(),
       'isOval': isOval,
     };
   }

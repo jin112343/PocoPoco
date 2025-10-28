@@ -58,30 +58,32 @@ class CrochetProject {
               if (stitch is CrochetStitch) {
                 return {
                   'type': 'enum',
-                  'name': stitch.name,
+                  'name': stitch.nameEn, // 識別子として英語名を使用
+                  'nameJa': stitch.nameJa,
+                  'nameEn': stitch.nameEn,
                 };
               } else if (stitch is CustomStitch) {
                 // CustomStitchのtoJsonメソッドを使用
                 return stitch.toJson();
               } else {
-                print('不明な編み目タイプ: ${stitch.runtimeType}');
                 // 不明な型の場合はデフォルトのCrochetStitchとして扱う
                 return {
                   'type': 'enum',
-                  'name': 'singleCrochet',
+                  'name': 'Single Crochet',
+                  'nameJa': '細編み',
+                  'nameEn': 'Single Crochet',
                 };
               }
             } catch (e) {
-              print('編み目JSON変換エラー: $e');
-              print('エラーが発生した編み目の型: ${stitch.runtimeType}');
               // エラーが発生した場合はデフォルトのCrochetStitchとして扱う
               return {
                 'type': 'enum',
-                'name': 'singleCrochet',
+                'name': 'Single Crochet',
+                'nameJa': '細編み',
+                'nameEn': 'Single Crochet',
               };
             }
           })
-          .where((item) => item != null)
           .toList(),
     };
   }
@@ -102,11 +104,10 @@ class CrochetProject {
           final stitchName = stitchData['stitch'] as String;
           try {
             stitchData['stitch'] = CrochetStitch.values.firstWhere(
-              (stitch) => stitch.name == stitchName,
+              (stitch) => stitch.nameEn == stitchName || stitch.nameJa == stitchName,
               orElse: () => CrochetStitch.singleCrochet,
             );
           } catch (e) {
-            print('CrochetStitch変換エラー: $stitchName, エラー: $e');
             stitchData['stitch'] = CrochetStitch.singleCrochet;
           }
         } else if (stitchData['stitch'] is Map<String, dynamic>) {
@@ -134,7 +135,6 @@ class CrochetProject {
             stitchData['timestamp'] =
                 DateTime.parse(stitchData['timestamp'] as String);
           } catch (e) {
-            print('DateTime変換エラー: ${stitchData['timestamp']}, エラー: $e');
             stitchData['timestamp'] = DateTime.now();
           }
         }
@@ -149,13 +149,13 @@ class CrochetProject {
         final stitchData = Map<String, dynamic>.from(stitchJson);
         if (stitchData['type'] == 'enum') {
           final stitchName = stitchData['name'] as String;
+          final stitchNameEn = stitchData['nameEn'] as String? ?? stitchName;
           try {
             return CrochetStitch.values.firstWhere(
-              (stitch) => stitch.name == stitchName,
+              (stitch) => stitch.nameEn == stitchNameEn || stitch.nameJa == stitchName,
               orElse: () => CrochetStitch.singleCrochet,
             );
           } catch (e) {
-            print('CrochetStitch変換エラー: $stitchName, エラー: $e');
             return CrochetStitch.singleCrochet;
           }
         } else if (stitchData['type'] == 'custom') {

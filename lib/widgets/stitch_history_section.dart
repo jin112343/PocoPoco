@@ -93,7 +93,6 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           .reduce((a, b) => a > b ? a : b);
     } catch (e) {
       // エラーが発生した場合は0を返す
-      print('_getMaxRowでエラーが発生: $e');
       return 0;
     }
   }
@@ -147,7 +146,6 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       }
     } catch (e) {
       // エラーが発生した場合は無視（段が削除された可能性）
-      print('scrollToRowでエラーが発生: $e');
     }
   }
 
@@ -169,7 +167,6 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       }
     } catch (e) {
       // エラーが発生した場合は無視（段が削除された可能性）
-      print('_scrollToLatestRowでエラーが発生: $e');
     }
   }
 
@@ -192,7 +189,6 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       }
     } catch (e) {
       // エラーが発生した場合は無視（段が削除された可能性）
-      print('_scrollToLatestStitchでエラーが発生: $e');
     }
   }
 
@@ -202,15 +198,24 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   }
 
   String _getStitchName(dynamic stitch) {
-    final locale = context.locale.languageCode;
-
-    if (stitch is CrochetStitch) {
-      return locale == 'ja' ? stitch.nameJa : stitch.nameEn;
-    } else if (stitch is CustomStitch) {
-      return stitch.getName(context);
-    } else if (stitch is Map<String, String>) {
-      return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
-    } else {
+    try {
+      if (stitch is CrochetStitch) {
+        return stitch.getName(context);
+      } else if (stitch is CustomStitch) {
+        return stitch.getName(context);
+      } else if (stitch is Map<String, String>) {
+        final locale = context.locale.languageCode;
+        return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+      } else {
+        return 'Unknown';
+      }
+    } catch (e) {
+      // エラー時は日本語名を返す
+      if (stitch is CrochetStitch) {
+        return stitch.nameJa;
+      } else if (stitch is CustomStitch) {
+        return stitch.nameJa;
+      }
       return 'Unknown';
     }
   }
@@ -490,10 +495,10 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.grey.withOpacity(0.1),
+                      color: Colors.grey.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                          color: Colors.grey.withOpacity(0.3), width: 1),
+                          color: Colors.grey.withValues(alpha: 0.3), width: 1),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -528,26 +533,40 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   // 履歴のstitch情報を現在のボタンリストから探す
   dynamic _findStitchInCurrentList(
       dynamic stitch, List<dynamic> currentStitches) {
-    String? name;
+    String? nameJa;
+    String? nameEn;
+    
     if (stitch is CrochetStitch) {
-      name = stitch.name;
+      nameJa = stitch.nameJa;
+      nameEn = stitch.nameEn;
     } else if (stitch is CustomStitch) {
-      name = stitch.name;
+      nameJa = stitch.nameJa;
+      nameEn = stitch.nameEn;
     } else if (stitch is Map) {
-      name = stitch['name'] ?? stitch['nameJa'] ?? stitch['nameEn'];
+      nameJa = stitch['nameJa'] as String?;
+      nameEn = stitch['nameEn'] as String?;
     } else if (stitch is String) {
-      name = stitch;
+      nameJa = stitch;
+      nameEn = stitch;
     }
-    // 現在のボタンリストから一致するものを探す
+    
+    // 現在のボタンリストから一致するものを探す（日本語名または英語名で一致）
     final found = currentStitches.firstWhere(
-      (s) => (s is CrochetStitch || s is CustomStitch) && s.name == name,
+      (s) {
+        if (s is CrochetStitch) {
+          return s.nameJa == nameJa || s.nameEn == nameEn;
+        } else if (s is CustomStitch) {
+          return s.nameJa == nameJa || s.nameEn == nameEn;
+        }
+        return false;
+      },
       orElse: () {
         // なければMapからCustomStitchを生成
         if (stitch is Map &&
             (stitch['type'] == 'custom' || stitch['imagePath'] != null)) {
           return CustomStitch(
-            nameJa: stitch['nameJa'] ?? stitch['name'],
-            nameEn: stitch['nameEn'] ?? stitch['name'],
+            nameJa: stitch['nameJa'] ?? stitch['name'] ?? nameJa ?? '',
+            nameEn: stitch['nameEn'] ?? stitch['name'] ?? nameEn ?? '',
             imagePath: stitch['imagePath'],
             color:
                 stitch['color'] != null ? Color(stitch['color']) : Colors.pink,

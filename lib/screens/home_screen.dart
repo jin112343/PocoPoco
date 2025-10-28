@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:logger/logger.dart';
 import '../models/crochet_project.dart';
 import '../services/storage_service.dart';
 import 'crochet_counter_screen.dart';
@@ -17,6 +18,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  final Logger logger = Logger();
   final StorageService _storageService = StorageService();
   List<CrochetProject> _projects = [];
   bool _isLoading = true;
@@ -33,7 +35,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.didChangeDependencies();
     // プレミアム状態の変更を監視
     final isPremium = context.watch<SubscriptionProvider>().isPremium;
-    print('HomeScreen: プレミアム状態: $isPremium');
+    logger.d('HomeScreen.didChangeDependencies: プレミアム状態 - isPremium: $isPremium');
   }
 
   Future<void> _loadProjects() async {
@@ -70,7 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _requestTrackingPermission() async {
     if (_hasRequestedTracking) return; // 既に要求済みの場合はスキップ
-    
+
     try {
       final status = await AppTrackingTransparency.trackingAuthorizationStatus;
       if (status == TrackingStatus.notDetermined) {
@@ -79,21 +81,25 @@ class _HomeScreenState extends State<HomeScreen> {
         });
         await AppTrackingTransparency.requestTrackingAuthorization();
       }
-    } catch (e) {
-      print('ATT許可リクエストエラー: $e');
+    } catch (e, stackTrace) {
+      logger.e('HomeScreen._requestTrackingPermission: ATT許可リクエストエラー', error: e, stackTrace: stackTrace);
     }
   }
 
   void _createNewProject() {
-    final isPremium = context.read<SubscriptionProvider>().isPremium;
-    print(
-        'HomeScreen: 新規プロジェクト作成 - isPremium: $isPremium, 現在のプロジェクト数: ${_projects.length}');
+    final subscriptionProvider = context.read<SubscriptionProvider>();
+    final isPremium = subscriptionProvider.isPremium;
+    final isInTrial = subscriptionProvider.isInTrialPeriod && subscriptionProvider.isTrialActive;
+
+    logger.i('HomeScreen._createNewProject: 新規プロジェクト作成 - isPremium: $isPremium, isInTrial: $isInTrial, projectsCount: ${_projects.length}');
 
     // 新規プロジェクト作成時にATT許可を要求
     _requestTrackingPermission();
 
+    // 無料プラン制限チェック
+    // 注意: トライアル期間中はisPremiumがtrueになるため、制限は適用されません
     if (!isPremium && _projects.length >= 3) {
-      print('HomeScreen: 保存制限に達しました（無料プラン）');
+      logger.w('HomeScreen._createNewProject: 保存制限に達しました（無料プラン） - トライアル期間外');
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -121,7 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    print('HomeScreen: 新規プロジェクト作成画面を開きます');
+    logger.i('HomeScreen._createNewProject: 新規プロジェクト作成画面を開きます');
     Navigator.of(context)
         .push(
       MaterialPageRoute(
@@ -665,10 +671,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    print('=== HomeScreen build開始 ===');
-    print('_isLoading: $_isLoading');
-    print('_projects.length: ${_projects.length}');
-    print('プレミアム状態: ${context.read<SubscriptionProvider>().isPremium}');
+    logger.d('HomeScreen.build: ビルド開始 - _isLoading: $_isLoading, projectsCount: ${_projects.length}, isPremium: ${context.read<SubscriptionProvider>().isPremium}');
 
     return Scaffold(
       backgroundColor: const Color(0xFFFCE4EC),

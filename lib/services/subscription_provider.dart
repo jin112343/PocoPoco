@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:logger/logger.dart';
 
 class SubscriptionProvider extends ChangeNotifier {
+  final Logger logger = Logger();
   bool _isPremium = false;
   String? _activeSubscriptionId;
   DateTime? _subscriptionExpiryDate;
@@ -19,10 +21,10 @@ class SubscriptionProvider extends ChangeNotifier {
   static const String _hasUsedTrialKey = 'has_used_trial';
 
   bool get isPremium {
-    print('=== SubscriptionProvider.isPremium called ===');
-    print('_isPremium: $_isPremium');
-    print('_activeSubscriptionId: $_activeSubscriptionId');
-    print('_subscriptionExpiryDate: $_subscriptionExpiryDate');
+    logger.d('=== SubscriptionProvider.isPremium called ===');
+    logger.d('_isPremium: $_isPremium');
+    logger.d('_activeSubscriptionId: $_activeSubscriptionId');
+    logger.d('_subscriptionExpiryDate: $_subscriptionExpiryDate');
     return _isPremium;
   }
 
@@ -32,7 +34,7 @@ class SubscriptionProvider extends ChangeNotifier {
   DateTime? get trialEndDate => _trialEndDate;
   bool get isInTrialPeriod => _isInTrialPeriod;
   bool get hasUsedTrial => _hasUsedTrial;
-  
+
   // トライアル期間が有効かどうかをチェック
   bool get isTrialActive {
     if (!_isInTrialPeriod || _trialEndDate == null) {
@@ -40,7 +42,7 @@ class SubscriptionProvider extends ChangeNotifier {
     }
     return DateTime.now().isBefore(_trialEndDate!);
   }
-  
+
   // トライアル期間の残り日数を取得
   int get trialDaysRemaining {
     if (!_isInTrialPeriod || _trialEndDate == null) {
@@ -53,7 +55,8 @@ class SubscriptionProvider extends ChangeNotifier {
   // サブスクリプション状態をセット
   void setPremium(bool value,
       {String? subscriptionId, DateTime? expiryDate}) async {
-    print('プレミアム状態を設定: $value, サブスクID: $subscriptionId, 有効期限: $expiryDate');
+    logger.i(
+        'SubscriptionProvider.setPremium: プレミアム状態を設定 - value: $value, subscriptionId: $subscriptionId, expiryDate: $expiryDate');
     _isPremium = value;
     _activeSubscriptionId = subscriptionId;
     _subscriptionExpiryDate = expiryDate;
@@ -73,52 +76,52 @@ class SubscriptionProvider extends ChangeNotifier {
       } else {
         await prefs.remove(_expiryDateKey);
       }
-      
+
       // トライアル期間情報も永続化
       await _saveTrialStatus(prefs);
-      print('プレミアム状態を永続化: $value, サブスクID: $subscriptionId, 有効期限: $expiryDate');
-    } catch (e) {
-      print('プレミアム状態の永続化エラー: $e');
+      logger.i('SubscriptionProvider.setPremium: プレミアム状態を永続化完了');
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider.setPremium: プレミアム状態の永続化エラー',
+          error: e, stackTrace: stackTrace);
     }
   }
 
   // サブスクリプション状態の永続化・復元
   Future<void> loadStatus() async {
     try {
-      print('=== SubscriptionProvider.loadStatus 開始 ===');
+      logger.i('SubscriptionProvider.loadStatus: 状態復元開始');
       final prefs = await SharedPreferences.getInstance();
 
       final savedPremium = prefs.getBool(_premiumKey);
-      print('SharedPreferencesから読み込んだプレミアム状態: $savedPremium');
+      logger.d(
+          'SubscriptionProvider.loadStatus: SharedPreferencesから読み込んだプレミアム状態 - savedPremium: $savedPremium');
 
       _isPremium = savedPremium ?? false;
       _activeSubscriptionId = prefs.getString(_subscriptionIdKey);
       final expiryString = prefs.getString(_expiryDateKey);
-      
+
       // トライアル期間情報を読み込み
       await _loadTrialStatus(prefs);
 
-      print('読み込まれた値:');
-      print('  _isPremium: $_isPremium');
-      print('  _activeSubscriptionId: $_activeSubscriptionId');
-      print('  expiryString: $expiryString');
+      logger.d(
+          'SubscriptionProvider.loadStatus: 読み込まれた値 - _isPremium: $_isPremium, _activeSubscriptionId: $_activeSubscriptionId, expiryString: $expiryString');
 
       if (expiryString != null) {
         _subscriptionExpiryDate = DateTime.parse(expiryString);
-        print('  _subscriptionExpiryDate: $_subscriptionExpiryDate');
+        logger.d(
+            'SubscriptionProvider.loadStatus: _subscriptionExpiryDate: $_subscriptionExpiryDate');
       }
 
       // 有効期限をチェック
-      print('有効期限チェック開始');
+      logger.d('SubscriptionProvider.loadStatus: 有効期限チェック開始');
       await _checkSubscriptionValidity();
 
-      print('=== プレミアム状態復元完了 ===');
-      print('最終的なプレミアム状態: $_isPremium');
-      print('サブスクID: $_activeSubscriptionId');
-      print('有効期限: $_subscriptionExpiryDate');
+      logger.i(
+          'SubscriptionProvider.loadStatus: プレミアム状態復元完了 - _isPremium: $_isPremium, subscriptionId: $_activeSubscriptionId, expiryDate: $_subscriptionExpiryDate');
       notifyListeners();
-    } catch (e) {
-      print('プレミアム状態の復元エラー: $e');
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider.loadStatus: プレミアム状態の復元エラー',
+          error: e, stackTrace: stackTrace);
       _isPremium = false;
       _activeSubscriptionId = null;
       _subscriptionExpiryDate = null;
@@ -131,13 +134,15 @@ class SubscriptionProvider extends ChangeNotifier {
     if (_subscriptionExpiryDate != null &&
         DateTime.now().isAfter(_subscriptionExpiryDate!)) {
       // 有効期限が切れている場合
-      print('サブスクリプションの有効期限が切れています');
+      logger.w(
+          'SubscriptionProvider._checkSubscriptionValidity: サブスクリプションの有効期限が切れています - expiryDate: $_subscriptionExpiryDate');
       await _cancelSubscription();
     }
   }
 
   // サブスクリプションをキャンセル
   Future<void> _cancelSubscription() async {
+    logger.i('SubscriptionProvider._cancelSubscription: サブスクリプションキャンセル処理開始');
     _isPremium = false;
     _activeSubscriptionId = null;
     _subscriptionExpiryDate = null;
@@ -149,8 +154,8 @@ class SubscriptionProvider extends ChangeNotifier {
       await prefs.setBool(_premiumKey, false);
       await prefs.remove(_subscriptionIdKey);
       await prefs.remove(_expiryDateKey);
-      
-      // トライアル期間もリセット（通常のサブスクリプション終了時）
+
+      // トライアル期間もリセット(通常のサブスクリプション終了時)
       if (_isInTrialPeriod) {
         _isInTrialPeriod = false;
         _trialStartDate = null;
@@ -159,9 +164,12 @@ class SubscriptionProvider extends ChangeNotifier {
         await prefs.remove(_trialStartKey);
         await prefs.remove(_trialEndKey);
       }
-      print('サブスクリプションをキャンセルしました');
-    } catch (e) {
-      print('サブスクリプションキャンセル時の永続化エラー: $e');
+      logger.i('SubscriptionProvider._cancelSubscription: サブスクリプションキャンセル完了');
+    } catch (e, stackTrace) {
+      logger.e(
+          'SubscriptionProvider._cancelSubscription: サブスクリプションキャンセル時の永続化エラー',
+          error: e,
+          stackTrace: stackTrace);
     }
   }
 
@@ -214,99 +222,132 @@ class SubscriptionProvider extends ChangeNotifier {
     if (_isInTrialPeriod && isTrialActive) {
       return true;
     }
-    
+
     // 通常のサブスクリプション判定
     if (!_isPremium || _subscriptionExpiryDate == null) {
       return false;
     }
     return DateTime.now().isBefore(_subscriptionExpiryDate!);
   }
-  
+
   // 無料トライアルを開始（年間プランのみ）
   Future<void> startFreeTrial() async {
-    print('無料トライアルを開始します（年間プラン）');
+    logger.i('SubscriptionProvider.startFreeTrial: 無料トライアルを開始します（年間プラン）');
     final now = DateTime.now();
     _trialStartDate = now;
     _trialEndDate = now.add(const Duration(days: 3)); // 3日間の無料トライアル
     _isInTrialPeriod = true;
     _hasUsedTrial = true;
     _isPremium = true; // トライアル期間中はプレミアム機能を利用可能
-    
-    print('トライアル開始日: $_trialStartDate');
-    print('トライアル終了日: $_trialEndDate');
-    
+
+    logger.i(
+        'SubscriptionProvider.startFreeTrial: トライアル開始 - startDate: $_trialStartDate, endDate: $_trialEndDate');
+
     notifyListeners();
-    
+
     // 永続化
     try {
       final prefs = await SharedPreferences.getInstance();
       await _saveTrialStatus(prefs);
       await prefs.setBool(_premiumKey, true);
-      print('無料トライアル情報を永続化しました');
-    } catch (e) {
-      print('無料トライアル情報の永続化エラー: $e');
+      logger.i('SubscriptionProvider.startFreeTrial: 無料トライアル情報を永続化しました');
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider.startFreeTrial: 無料トライアル情報の永続化エラー',
+          error: e, stackTrace: stackTrace);
     }
   }
-  
+
   // トライアル期間の有効性をチェック
   Future<void> checkTrialStatus() async {
-    print('トライアル期間の有効性をチェック中');
+    logger.d('SubscriptionProvider.checkTrialStatus: トライアル期間の有効性をチェック中');
     if (_isInTrialPeriod && _trialEndDate != null) {
       final now = DateTime.now();
       if (now.isAfter(_trialEndDate!)) {
-        print('トライアル期間が終了しました');
+        logger.w(
+            'SubscriptionProvider.checkTrialStatus: トライアル期間が終了しました - endDate: $_trialEndDate');
         await _endFreeTrial();
       } else {
-        print('トライアル期間中です。残り${trialDaysRemaining}日');
+        logger.i(
+            'SubscriptionProvider.checkTrialStatus: トライアル期間中です - 残り${trialDaysRemaining}日');
       }
     }
   }
-  
+
   // 無料トライアル終了処理
   Future<void> _endFreeTrial() async {
-    print('無料トライアル期間を終了します');
+    logger.i('SubscriptionProvider._endFreeTrial: 無料トライアル期間を終了します');
     _isInTrialPeriod = false;
-    
+
     // 有効なサブスクリプションがない場合はプレミアムステータスを無効化
     if (_activeSubscriptionId == null || !isSubscriptionValid()) {
       _isPremium = false;
+      logger.w(
+          'SubscriptionProvider._endFreeTrial: 有効なサブスクリプションがないため、プレミアムステータスを無効化しました');
     }
-    
+
     notifyListeners();
-    
+
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_isInTrialKey, false);
       if (!_isPremium) {
         await prefs.setBool(_premiumKey, false);
       }
-      print('トライアル終了処理を完了しました');
-    } catch (e) {
-      print('トライアル終了処理エラー: $e');
+      logger.i('SubscriptionProvider._endFreeTrial: トライアル終了処理を完了しました');
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider._endFreeTrial: トライアル終了処理エラー',
+          error: e, stackTrace: stackTrace);
     }
   }
-  
+
   // トライアル期間終了後の自動課金処理
   Future<void> handleTrialExpiration() async {
     if (!_isInTrialPeriod || _trialEndDate == null) {
       return;
     }
-    
+
     final now = DateTime.now();
     if (now.isAfter(_trialEndDate!)) {
-      print('トライアル期間が終了しました。自動課金処理を開始します');
-      
-      // トライアル期間を終了
-      await _endFreeTrial();
-      
-      // 年間サブスクリプションの自動課金を開始
-      // 注意: 実際の課金処理はApp Store/Google Playの仕組みに依存します
-      // ここでは、ユーザーに課金が必要であることを通知する処理を行います
-      print('年間サブスクリプションの自動課金が必要です');
+      logger.w(
+          'SubscriptionProvider.handleTrialExpiration: トライアル期間が終了しました - 自動課金処理を開始します');
+
+      try {
+        // トライアル期間を終了
+        await _endFreeTrial();
+
+        // 年間サブスクリプションの自動課金を確認
+        // 注意: 実際の課金処理はApp Store/Google Playの仕組みに依存します
+        final paymentStatus = await checkPaymentStatus();
+
+        if (paymentStatus['available'] == true &&
+            paymentStatus['hasActiveSubscription'] == true) {
+          logger.i(
+              'SubscriptionProvider.handleTrialExpiration: 有効なサブスクリプションが確認されました');
+        } else {
+          logger.w(
+              'SubscriptionProvider.handleTrialExpiration: 有効なサブスクリプションが見つかりません - ユーザーは無料プランに戻ります');
+          // ユーザーに通知する必要がある場合は、ここでnotifyListeners()を呼び出します
+          notifyListeners();
+        }
+      } catch (e, stackTrace) {
+        logger.e(
+            'SubscriptionProvider.handleTrialExpiration: トライアル終了処理中にエラーが発生しました',
+            error: e,
+            stackTrace: stackTrace);
+        // エラーが発生した場合でも、トライアル期間は終了させる
+        _isInTrialPeriod = false;
+        _isPremium = false;
+        notifyListeners();
+      }
     }
   }
-  
+
   // トライアル情報を永続化
+  // 注意: 現在はSharedPreferences(デバイスローカル)に保存しています
+  // 将来的な改善案:
+  // - Firestore等のクラウドストレージに保存して複数デバイス対応
+  // - ユーザーIDと紐付けてトライアル使用履歴を管理
+  // - アプリ再インストール時のトライアル再利用を防ぐ
   Future<void> _saveTrialStatus(SharedPreferences prefs) async {
     if (_trialStartDate != null) {
       await prefs.setString(_trialStartKey, _trialStartDate!.toIso8601String());
@@ -317,31 +358,51 @@ class SubscriptionProvider extends ChangeNotifier {
     await prefs.setBool(_isInTrialKey, _isInTrialPeriod);
     await prefs.setBool(_hasUsedTrialKey, _hasUsedTrial);
   }
-  
+
   // トライアル情報を読み込み
   Future<void> _loadTrialStatus(SharedPreferences prefs) async {
     final trialStartString = prefs.getString(_trialStartKey);
     final trialEndString = prefs.getString(_trialEndKey);
-    
+
     if (trialStartString != null) {
       _trialStartDate = DateTime.parse(trialStartString);
     }
     if (trialEndString != null) {
       _trialEndDate = DateTime.parse(trialEndString);
     }
-    
+
     _isInTrialPeriod = prefs.getBool(_isInTrialKey) ?? false;
     _hasUsedTrial = prefs.getBool(_hasUsedTrialKey) ?? false;
-    
-    print('トライアル情報読み込み完了:');
-    print('  _trialStartDate: $_trialStartDate');
-    print('  _trialEndDate: $_trialEndDate');
-    print('  _isInTrialPeriod: $_isInTrialPeriod');
-    print('  _hasUsedTrial: $_hasUsedTrial');
-    
+
+    logger.d(
+        'SubscriptionProvider._loadTrialStatus: トライアル情報読み込み完了 - startDate: $_trialStartDate, endDate: $_trialEndDate, isInTrialPeriod: $_isInTrialPeriod, hasUsedTrial: $_hasUsedTrial');
+
     // トライアル期間の有効性をチェック
     if (_isInTrialPeriod) {
       await checkTrialStatus();
+    }
+  }
+
+  // デバッグ用：トライアル状態をリセット
+  Future<void> resetTrialStatus() async {
+    logger.i('SubscriptionProvider.resetTrialStatus: トライアル状態をリセットします（デバッグ用）');
+    _hasUsedTrial = false;
+    _isInTrialPeriod = false;
+    _trialStartDate = null;
+    _trialEndDate = null;
+
+    notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_hasUsedTrialKey, false);
+      await prefs.setBool(_isInTrialKey, false);
+      await prefs.remove(_trialStartKey);
+      await prefs.remove(_trialEndKey);
+      logger.i('SubscriptionProvider.resetTrialStatus: トライアル状態のリセット完了');
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider.resetTrialStatus: トライアル状態のリセットエラー',
+          error: e, stackTrace: stackTrace);
     }
   }
 }

@@ -48,66 +48,38 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   void didUpdateWidget(StitchPatternGrid oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // デバッグモード時のみログ出力
-    if (kDebugMode) {
-      print('StitchPatternGrid: didUpdateWidget called');
-      print('old projectStitches length: ${oldWidget.projectStitches?.length}');
-      print('new projectStitches length: ${widget.projectStitches?.length}');
-    }
-
     // プロジェクト固有の編み目設定が変更された場合は再読み込み
     bool shouldReload = false;
 
     // 参照が同じ場合は内容変更なしとみなす
     if (identical(widget.projectStitches, oldWidget.projectStitches)) {
-      if (kDebugMode) {
-        print('StitchPatternGrid: projectStitchesの参照が同じ、変更なし');
-      }
       return;
     }
 
     // nullチェック
     if (widget.projectStitches == null && oldWidget.projectStitches != null) {
       shouldReload = true;
-      if (kDebugMode) {
-        print('StitchPatternGrid: projectStitchesがnullに変更されました');
-      }
     } else if (widget.projectStitches != null &&
         oldWidget.projectStitches == null) {
       shouldReload = true;
-      if (kDebugMode) {
-        print('StitchPatternGrid: projectStitchesがnullから変更されました');
-      }
     } else if (widget.projectStitches != null &&
         oldWidget.projectStitches != null) {
       // 長さの比較
       if (widget.projectStitches!.length != oldWidget.projectStitches!.length) {
         shouldReload = true;
-        if (kDebugMode) {
-          print('StitchPatternGrid: projectStitchesの長さが変更されました');
-        }
       } else {
         // 内容の比較（深い比較）
         shouldReload = _hasStitchesChanged(widget.projectStitches!, oldWidget.projectStitches!);
-        if (shouldReload && kDebugMode) {
-          print('StitchPatternGrid: projectStitchesの内容が変更されました');
-        }
       }
     }
 
     // キーの変更もチェック
     if (widget.key != oldWidget.key) {
       shouldReload = true;
-      if (kDebugMode) {
-        print('StitchPatternGrid: キーが変更されました');
-      }
     }
 
     // 必要な場合のみ再読み込みを実行
     if (shouldReload) {
-      if (kDebugMode) {
-        print('StitchPatternGrid: 編み目設定を再読み込みします');
-      }
       _loadStitches();
     }
   }
@@ -130,6 +102,14 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       
       _checkPremiumStatusChange();
 
+      // 依存関係が変更された時（特にlocale変更時）に名前キャッシュをクリアして再描画
+      if (_stitches.isNotEmpty) {
+        _stitchNameCache.clear();
+        if (mounted) {
+          setState(() {});
+        }
+      }
+
       // 依存関係が変更された時に編み目設定を再読み込み
       if (_stitches.isEmpty && !_isLoading) {
         _loadStitches();
@@ -144,7 +124,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         Future.delayed(const Duration(milliseconds: 100), () {
           if (mounted) {
             _hasTriedEasyLocalization = false;
-            didChangeDependencies();
+            setState(() {});
           }
         });
       }
@@ -158,9 +138,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
 
     if (wasPremium != null && wasPremium && !isPremium) {
       // プレミアムから解約された場合のみ処理
-      if (kDebugMode) {
-        print('StitchPatternGrid: プレミアム解約を検知しました');
-      }
       _loadStitches(); // 編み目設定を再読み込み
     }
 
@@ -168,7 +145,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   }
 
   Future<void> _loadStitches() async {
-    print('StitchPatternGrid: _loadStitches called');
 
     try {
       // 編み目設定が変更された場合はキャッシュをクリア
@@ -178,39 +154,14 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       if (widget.projectStitches != null &&
           widget.projectStitches!.isNotEmpty) {
         _stitches = List.from(widget.projectStitches!);
-        print('プロジェクト固有の編み目設定を使用: ${_stitches.length}個');
       } else {
         // プロジェクト固有の編み目設定がない場合は基本6つの編み目を使用
         _stitches = StitchSettingsService.getDefaultStitches();
-        print('基本編み目設定を使用: ${_stitches.length}個');
       }
 
       // 編み目リストが空の場合はデフォルト設定を使用
       if (_stitches.isEmpty) {
-        print('編み目リストが空のため、デフォルト設定を使用します');
         _stitches = StitchSettingsService.getDefaultStitches();
-      }
-
-      // デバッグモード時のみ編み目リストの内容をログ出力
-      if (kDebugMode) {
-        print('読み込まれた編み目リスト:');
-        for (int i = 0; i < _stitches.length; i++) {
-          final stitch = _stitches[i];
-          try {
-            // initState中は安全な名前取得を使用
-            String stitchName = 'Loading...';
-            if (mounted && context.mounted) {
-              stitchName = _getStitchName(stitch);
-            } else if (stitch is CrochetStitch) {
-              stitchName = stitch.nameEn; // デフォルトで英語名を使用
-            } else if (stitch is CustomStitch) {
-              stitchName = stitch.nameEn; // デフォルトで英語名を使用
-            }
-            print('  $i: $stitchName (${stitch.runtimeType})');
-          } catch (e) {
-            print('  $i: エラーで名前を取得できませんでした (${stitch.runtimeType}): $e');
-          }
-        }
       }
 
       // UIを一度だけ更新
@@ -218,17 +169,14 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         setState(() {
           _isLoading = false;
         });
-        print('StitchPatternGrid: UI更新完了、編み目数: ${_stitches.length}');
       }
     } catch (e) {
-      print('編み目設定読み込みエラー: $e');
       _stitches = StitchSettingsService.getDefaultStitches();
 
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-        print('StitchPatternGrid: エラー後のデフォルト設定使用、編み目数: ${_stitches.length}');
       }
     }
   }
@@ -269,27 +217,30 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     try {
       // EasyLocalizationが利用可能になるまで待つ
       if (!mounted || !context.mounted) {
+        // コンテキストが利用できない場合はデフォルトで日本語を返す
+        if (stitch is CrochetStitch) {
+          return stitch.nameJa;
+        } else if (stitch is CustomStitch) {
+          return stitch.nameJa;
+        }
         return 'Loading...';
-      }
-      
-      // context.localeが利用可能かチェック
-      String locale = 'en'; // デフォルトで英語
-      try {
-        locale = context.locale.languageCode;
-      } catch (e) {
-        // EasyLocalizationがまだ初期化されていない場合はデフォルトで英語を使用
-        print('EasyLocalization not ready, using default locale: en');
       }
       
       String result;
 
       if (stitch is CrochetStitch) {
-        result = locale == 'ja' ? stitch.nameJa : stitch.nameEn;
+        // getNameメソッドを使用（context.localeを使用）
+        result = stitch.getName(context);
       } else if (stitch is CustomStitch) {
         // CustomStitchの場合はgetNameメソッドを使用
         result = stitch.getName(context);
       } else if (stitch is Map<String, String>) {
-        result = locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+        try {
+          final locale = context.locale.languageCode;
+          result = locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+        } catch (e) {
+          result = stitch['nameJa'] ?? stitch['nameEn'] ?? 'Unknown';
+        }
       } else {
         result = 'Unknown';
       }
@@ -297,9 +248,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       // 結果が空文字列の場合はデフォルト値を返す
       if (result.isEmpty) {
         if (stitch is CrochetStitch) {
-          result = stitch.nameEn; // 英語名をフォールバックとして使用
+          result = stitch.nameJa; // 日本語名をフォールバックとして使用
         } else if (stitch is CustomStitch) {
-          result = stitch.nameEn; // 英語名をフォールバックとして使用
+          result = stitch.nameJa; // 日本語名をフォールバックとして使用
         } else {
           result = 'Unknown';
         }
@@ -308,20 +259,14 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       // キャッシュに保存
       _stitchNameCache[stitch] = result;
       
-      // デバッグモード時のみ詳細ログ出力
-      if (kDebugMode) {
-        print(
-            'StitchPatternGrid: _getStitchName - stitch: ${stitch.runtimeType}, result: $result, locale: $locale');
-      }
       return result;
     } catch (e) {
-      print('StitchPatternGrid: _getStitchName error: $e');
-      // エラーが発生した場合のフォールバック
+      // エラーが発生した場合のフォールバック（日本語優先）
       String fallbackName = 'Unknown';
       if (stitch is CrochetStitch) {
-        fallbackName = stitch.nameEn;
+        fallbackName = stitch.nameJa;
       } else if (stitch is CustomStitch) {
-        fallbackName = stitch.nameEn;
+        fallbackName = stitch.nameJa;
       }
       
       // フォールバック名もキャッシュに保存
@@ -332,11 +277,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
 
   @override
   Widget build(BuildContext context) {
-    // デバッグモード時のみログ出力
-    if (kDebugMode) {
-      print('StitchPatternGrid: build called, _stitches.length = ${_stitches.length}');
-    }
-
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -363,8 +303,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                     context.read<SubscriptionProvider>().isPremium;
 
                 if (isPremium) {
-                  print('編み目カスタマイズ画面を開きます');
-
                   final result = await Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => StitchCustomizationScreen(
@@ -377,15 +315,11 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
 
                   if (result == true) {
                     // 編み目設定が変更された場合
-                    print('StitchPatternGrid: 編み目設定が変更されました');
-
                     // 少し待ってから再読み込み（保存処理の完了を待つ）
                     await Future.delayed(const Duration(milliseconds: 500));
 
                     // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                    print('StitchPatternGrid: 編み目設定を再読み込み中...');
                     await _loadStitches();
-                    print('StitchPatternGrid: 編み目設定の再読み込み完了');
 
                     // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
                     // widget.onStitchSettingsChanged?.call();
@@ -411,7 +345,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: Colors.pink.withOpacity(0.1),
+                color: Colors.pink.withValues(alpha: 0.1),
                 blurRadius: 8,
                 offset: const Offset(0, 4),
               ),
@@ -445,8 +379,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                 widget.onStitchAdded(stitch);
                               },
                               onLongPress: () async {
-                                print('編み目ボタンが長押しされました。編み目カスタマイズ画面を開きます');
-
                                 final result = await Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (context) =>
@@ -460,16 +392,12 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
 
                                 if (result == true) {
                                   // 編み目設定が変更された場合
-                                  print('StitchPatternGrid: 編み目設定が変更されました');
-
                                   // 少し待ってから再読み込み（保存処理の完了を待つ）
                                   await Future.delayed(
                                       const Duration(milliseconds: 500));
 
                                   // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                                  print('StitchPatternGrid: 編み目設定を再読み込み中...');
                                   await _loadStitches();
-                                  print('StitchPatternGrid: 編み目設定の再読み込み完了');
 
                                   // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
                                   // widget.onStitchSettingsChanged?.call();
@@ -480,7 +408,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                   color: (isCustomStitch
                                           ? stitch.color
                                           : stitch.color)
-                                      .withOpacity(0.1),
+                                      .withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
                                     color: isCustomStitch
@@ -493,22 +421,39 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Container(
-                                      width: 32,
-                                      height: 32,
+                                      width: 36,
+                                      height: 36,
                                       decoration: BoxDecoration(
                                         color: Colors.white,
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                       child: Center(
                                         child: stitch.imagePath != null
-                                            ? Image.asset(
-                                                stitch.imagePath!,
-                                                width: 28,
-                                                height: 28,
-                                                fit: BoxFit.contain,
+                                            ? Padding(
+                                                padding: const EdgeInsets.all(3),
+                                                child: Image.asset(
+                                                  stitch.imagePath!,
+                                                  width: 26,
+                                                  height: 26,
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (context, error, stackTrace) {
+                                                    return Text(
+                                                      _getStitchName(stitch).isNotEmpty
+                                                          ? _getStitchName(stitch).substring(0, 1)
+                                                          : '?',
+                                                      style: TextStyle(
+                                                        fontSize: 18,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: isCustomStitch
+                                                            ? stitch.color
+                                                            : stitch.color,
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
                                               )
                                             : Text(
-                                                _getStitchName(stitch).isNotEmpty 
+                                                _getStitchName(stitch).isNotEmpty
                                                     ? _getStitchName(stitch).substring(0, 1)
                                                     : '?',
                                                 style: TextStyle(
@@ -524,9 +469,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                     const SizedBox(width: 8),
                                     Flexible(
                                       child: Text(
-                                        _getStitchName(stitch).isNotEmpty && _getStitchName(stitch).length > 8
-                                            ? '${_getStitchName(stitch).substring(0, 6)}...'
-                                            : _getStitchName(stitch),
+                                        _getStitchName(stitch),
                                         style: TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
@@ -535,7 +478,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                               : stitch.color,
                                         ),
                                         textAlign: TextAlign.center,
-                                        maxLines: 1,
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
@@ -576,8 +519,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                   .isPremium;
 
                               if (isPremium) {
-                                print('編み目ボタンが長押しされました。編み目カスタマイズ画面を開きます');
-
                                 final result = await Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (context) =>
@@ -591,16 +532,12 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
 
                                 if (result == true) {
                                   // 編み目設定が変更された場合
-                                  print('StitchPatternGrid: 編み目設定が変更されました');
-
                                   // 少し待ってから再読み込み（保存処理の完了を待つ）
                                   await Future.delayed(
                                       const Duration(milliseconds: 500));
 
                                   // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                                  print('StitchPatternGrid: 編み目設定を再読み込み中...');
                                   await _loadStitches();
-                                  print('StitchPatternGrid: 編み目設定の再読み込み完了');
 
                                   // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
                                   // widget.onStitchSettingsChanged?.call();
@@ -619,7 +556,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                 color: (isCustomStitch
                                         ? stitch.color
                                         : stitch.color)
-                                    .withOpacity(0.1),
+                                    .withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(10),
                                 border: Border.all(
                                   color: isCustomStitch
@@ -632,22 +569,39 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Container(
-                                    width: 32,
-                                    height: 32,
+                                    width: 36,
+                                    height: 36,
                                     decoration: BoxDecoration(
                                       color: Colors.white,
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Center(
-                                                                          child: stitch.imagePath != null
-                                        ? Image.asset(
-                                            stitch.imagePath!,
-                                            width: 28,
-                                            height: 28,
-                                            fit: BoxFit.contain,
+                                      child: stitch.imagePath != null
+                                        ? Padding(
+                                            padding: const EdgeInsets.all(3),
+                                            child: Image.asset(
+                                              stitch.imagePath!,
+                                              width: 26,
+                                              height: 26,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                return Text(
+                                                  _getStitchName(stitch).isNotEmpty
+                                                      ? _getStitchName(stitch).substring(0, 1)
+                                                      : '?',
+                                                  style: TextStyle(
+                                                    fontSize: 18,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: isCustomStitch
+                                                        ? stitch.color
+                                                        : stitch.color,
+                                                  ),
+                                                );
+                                              },
+                                            ),
                                           )
                                         : Text(
-                                            _getStitchName(stitch).isNotEmpty 
+                                            _getStitchName(stitch).isNotEmpty
                                                 ? _getStitchName(stitch).substring(0, 1)
                                                 : '?',
                                             style: TextStyle(
@@ -663,9 +617,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                   const SizedBox(width: 8),
                                   Flexible(
                                     child: Text(
-                                      _getStitchName(stitch).isNotEmpty && _getStitchName(stitch).length > 8
-                                          ? '${_getStitchName(stitch).substring(0, 6)}...'
-                                          : _getStitchName(stitch),
+                                      _getStitchName(stitch),
                                       style: TextStyle(
                                         fontSize: 13,
                                         fontWeight: FontWeight.w600,
@@ -674,7 +626,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                                             : stitch.color,
                                       ),
                                       textAlign: TextAlign.center,
-                                      maxLines: 1,
+                                      maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),

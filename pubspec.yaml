@@ -3,7 +3,7 @@ description: シンプルなかぎ針編みカウンターアプリ
 
 publish_to: 'none'
 
-version: 1.0.6+7
+version: 1.0.4+11
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
@@ -23,6 +23,9 @@ dependencies:
   easy_localization: ^3.0.3
   app_tracking_transparency: ^2.0.4
   webview_flutter: ^4.7.0
+  path_provider: ^2.1.1
+  share_plus: ^7.2.1
+  file_picker: ^6.1.1
 
 dev_dependencies:
   flutter_test:

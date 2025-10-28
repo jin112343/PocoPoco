@@ -1,20 +1,35 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:logger/logger.dart';
 import '../models/crochet_stitch.dart';
 
 class StitchSettingsService {
   static const String _globalStitchesKey = 'global_stitches';
   static SharedPreferences? _prefs;
+  static final Logger _logger = Logger(
+    printer: PrettyPrinter(
+      methodCount: 0,
+      errorMethodCount: 5,
+      lineLength: 80,
+      colors: true,
+      printEmojis: true,
+      dateTimeFormat: DateTimeFormat.onlyTimeAndSinceStart,
+    ),
+  );
 
   // SharedPreferencesの初期化
   static Future<void> _initPrefs() async {
     if (_prefs == null) {
       try {
         _prefs = await SharedPreferences.getInstance();
-        print('StitchSettingsService: SharedPreferences初期化成功');
-      } catch (e) {
-        print('StitchSettingsService: SharedPreferences初期化失敗: $e');
+        _logger.i('StitchSettingsService: SharedPreferences初期化成功');
+      } catch (e, stackTrace) {
+        _logger.e(
+          'StitchSettingsService: SharedPreferences初期化失敗',
+          error: e,
+          stackTrace: stackTrace,
+        );
         rethrow;
       }
     }
@@ -42,16 +57,18 @@ class StitchSettingsService {
             if (stitch is CrochetStitch) {
               return {
                 'type': 'enum',
-                'name': stitch.name,
+                'name': stitch.nameEn, // 識別子として英語名を使用
+                'nameJa': stitch.nameJa,
+                'nameEn': stitch.nameEn,
               };
             } else if (stitch is CustomStitch) {
               return {
                 'type': 'custom',
-                'name': stitch.name,
+                'name': stitch.nameEn, // 識別子として英語名を使用
                 'nameJa': stitch.nameJa,
                 'nameEn': stitch.nameEn,
                 'imagePath': stitch.imagePath,
-                'color': stitch.color.value,
+                'color': stitch.color.toARGB32(),
                 'isOval': stitch.isOval,
               };
             }
@@ -62,10 +79,14 @@ class StitchSettingsService {
 
       final success =
           await _prefs!.setString(_globalStitchesKey, jsonEncode(stitchesJson));
-      print('グローバル編み目設定保存: $success');
+      _logger.i('saveGlobalStitches: グローバル編み目設定保存 success=$success');
       return success;
-    } catch (e) {
-      print('グローバル編み目設定保存エラー: $e');
+    } catch (e, stackTrace) {
+      _logger.e(
+        'saveGlobalStitches: グローバル編み目設定保存エラー',
+        error: e,
+        stackTrace: stackTrace,
+      );
       return false;
     }
   }
@@ -77,7 +98,6 @@ class StitchSettingsService {
 
       final stitchesJsonString = _prefs!.getString(_globalStitchesKey);
       if (stitchesJsonString == null) {
-        print('グローバル編み目設定なし、デフォルトを返す');
         return getDefaultStitches();
       }
 
@@ -86,22 +106,28 @@ class StitchSettingsService {
         final stitchData = Map<String, dynamic>.from(stitchJson);
         if (stitchData['type'] == 'enum') {
           final stitchName = stitchData['name'] as String;
+          final stitchNameEn = stitchData['nameEn'] as String? ?? stitchName;
           try {
             return CrochetStitch.values.firstWhere(
-              (stitch) => stitch.name == stitchName,
+              (stitch) => stitch.nameEn == stitchNameEn || stitch.nameJa == stitchName,
               orElse: () => CrochetStitch.singleCrochet,
             );
           } catch (e) {
-            print('CrochetStitch変換エラー: $stitchName, エラー: $e');
             return CrochetStitch.singleCrochet;
           }
         } else if (stitchData['type'] == 'custom') {
+          // imagePathが空文字列の場合はnullとして扱う
+          final imagePathRaw = stitchData['imagePath'] as String?;
+          final imagePath = (imagePathRaw == null || imagePathRaw.isEmpty)
+              ? null
+              : imagePathRaw;
+
           return CustomStitch(
             nameJa:
                 stitchData['nameJa'] as String? ?? stitchData['name'] as String,
             nameEn:
                 stitchData['nameEn'] as String? ?? stitchData['name'] as String,
-            imagePath: stitchData['imagePath'] as String?,
+            imagePath: imagePath,
             color: Color(stitchData['color'] as int),
             isOval: stitchData['isOval'] as bool? ?? false,
           );
@@ -109,27 +135,8 @@ class StitchSettingsService {
         return CrochetStitch.singleCrochet; // デフォルト
       }).toList();
 
-      print('グローバル編み目設定取得: ${stitches.length}個');
-      print('取得した編み目リスト（詳細）:');
-      for (int i = 0; i < stitches.length; i++) {
-        final stitch = stitches[i];
-        if (stitch is CrochetStitch) {
-          print(
-              '  $i: ${(stitch as CrochetStitch).name} (${stitch.runtimeType})');
-          print('     日本語名: ${(stitch as CrochetStitch).nameJa}');
-          print('     英語名: ${(stitch as CrochetStitch).nameEn}');
-        } else if (stitch is CustomStitch) {
-          print(
-              '  $i: ${(stitch as CustomStitch).name} (${stitch.runtimeType})');
-          print('     日本語名: ${(stitch as CustomStitch).nameJa}');
-          print('     英語名: ${(stitch as CustomStitch).nameEn}');
-        } else {
-          print('  $i: 不明な型 (${stitch.runtimeType})');
-        }
-      }
       return stitches;
     } catch (e) {
-      print('グローバル編み目設定取得エラー: $e');
       return getDefaultStitches();
     }
   }

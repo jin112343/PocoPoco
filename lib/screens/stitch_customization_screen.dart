@@ -4,7 +4,6 @@ import '../services/stitch_settings_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
-import 'dart:ui' as ui;
 
 class StitchCustomizationScreen extends StatefulWidget {
   final List<dynamic>? projectStitches; // プロジェクト固有の編み目設定
@@ -39,7 +38,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   @override
   void didUpdateWidget(StitchCustomizationScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    print('StitchCustomizationScreen: didUpdateWidget called');
   }
 
   @override
@@ -54,11 +52,9 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
     if (wasPremium != null && wasPremium && !isPremium) {
       // プレミアムから解約された場合
-      print('StitchCustomizationScreen: プレミアム解約を検知しました');
       _resetToDefaultStitches();
     } else if (wasPremium != null && !wasPremium && isPremium) {
       // プレミアムにアップグレードされた場合
-      print('StitchCustomizationScreen: プレミアムアップグレードを検知しました');
       _loadStitches(); // 編み目設定を再読み込み
     }
 
@@ -67,7 +63,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   void _resetToDefaultStitches() async {
     try {
-      print('編み目カスタマイズ画面: 基本編み目にリセットします');
 
       final defaultStitches = StitchSettingsService.getDefaultStitches();
       await StitchSettingsService.saveGlobalStitches(defaultStitches);
@@ -76,8 +71,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         _stitches = defaultStitches;
       });
 
-      print('編み目カスタマイズ画面: リセット完了');
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('プレミアム解約により基本編み目に戻しました'),
@@ -85,33 +78,24 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         ),
       );
     } catch (e) {
-      print('編み目カスタマイズ画面リセットエラー: $e');
     }
   }
 
   Future<void> _loadStitches() async {
     try {
-      print('StitchCustomizationScreen: 編み目設定を読み込み中...');
-
       // プロジェクト固有の編み目設定がある場合はそれを使用、なければグローバル設定を使用
       if (widget.projectStitches != null &&
           widget.projectStitches!.isNotEmpty) {
         _stitches = List.from(widget.projectStitches!);
-        print(
-            'StitchCustomizationScreen: プロジェクト固有の編み目設定を使用: ${_stitches.length}個');
       } else {
         final globalStitches = await StitchSettingsService.getGlobalStitches();
         _stitches = List.from(globalStitches);
-        print('StitchCustomizationScreen: グローバル編み目設定を使用: ${_stitches.length}個');
       }
 
-      print('StitchCustomizationScreen: 読み込まれた編み目数: ${_stitches.length}');
       setState(() {
         // setStateは不要（_stitchesは既に更新済み）
       });
-      print('StitchCustomizationScreen: 編み目リストを更新しました');
     } catch (e) {
-      print('編み目設定読み込みエラー: $e');
       setState(() {
         _stitches = StitchSettingsService.getDefaultStitches();
       });
@@ -133,7 +117,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     {
       'nameJa': 'ねじれ細編み目',
       'nameEn': 'Twisted Single Crochet',
-      'image': 'assets/images/ねじれ細編み目.png'
+      'image': 'assets/images/ねじれ細編み目.png'
     },
     {
       'nameJa': '長編み１目交差',
@@ -143,7 +127,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     {
       'nameJa': 'バック細編み',
       'nameEn': 'Back Single Crochet',
-      'image': 'assets/images/バック細編み.png'
+      'image': 'assets/images/バック細編み.png'
     },
     {
       'nameJa': '四つ巻き長編み目',
@@ -213,17 +197,17 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     {
       'nameJa': '中長編み５目のパプコーン編み',
       'nameEn': 'Half Double Crochet 5 Popcorn',
-      'image': 'assets/images/中長編み５目のパプコーン編み.png'
+      'image': 'assets/images/中長編み５目のパプコーン編み.png'
     },
     {
       'nameJa': '長編み５目のパプコーン編み',
       'nameEn': 'Double Crochet 5 Popcorn',
-      'image': 'assets/images/長編み５目のパプコーン編み.png'
+      'image': 'assets/images/長編み５目のパプコーン編み.png'
     },
     {
       'nameJa': '長々編み６目のパプコーン編み目',
       'nameEn': 'Treble Crochet 6 Popcorn',
-      'image': 'assets/images/長々編み６目のパプコーン編み目.png'
+      'image': 'assets/images/長々編み６目のパプコーン編み目.png'
     },
     {
       'nameJa': '細こま編み3目編み入れる',
@@ -283,38 +267,30 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   ];
 
   String _getStitchName(dynamic stitch) {
-    final locale = context.locale.languageCode;
-
-    if (stitch is CrochetStitch) {
-      return locale == 'ja' ? stitch.nameJa : stitch.nameEn;
-    } else if (stitch is CustomStitch) {
-      return stitch.getName(context);
-    } else if (stitch is Map<String, String>) {
-      return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
-    } else {
+    try {
+      if (stitch is CrochetStitch) {
+        return stitch.getName(context);
+      } else if (stitch is CustomStitch) {
+        return stitch.getName(context);
+      } else if (stitch is Map<String, String>) {
+        final locale = context.locale.languageCode;
+        return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+      } else {
+        return 'Unknown';
+      }
+    } catch (e) {
+      // エラー時は日本語名を返す
+      if (stitch is CrochetStitch) {
+        return stitch.nameJa;
+      } else if (stitch is CustomStitch) {
+        return stitch.nameJa;
+      }
       return 'Unknown';
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    print(
-        'StitchCustomizationScreen: build called, _stitches.length = ${_stitches.length}');
-    print('StitchCustomizationScreen: 現在の編み目リスト（表示名付き）:');
-    for (int i = 0; i < _stitches.length; i++) {
-      final stitch = _stitches[i];
-      final displayName = _getStitchName(stitch);
-      if (stitch is CrochetStitch) {
-        print(
-            '  $i: ${(stitch as CrochetStitch).name} (CrochetStitch) -> 表示名: $displayName');
-      } else if (stitch is CustomStitch) {
-        print(
-            '  $i: ${(stitch as CustomStitch).name} (CustomStitch) -> 表示名: $displayName');
-      } else {
-        print('  $i: 不明な型 (${stitch.runtimeType}) -> 表示名: $displayName');
-      }
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: Text(tr('edit_stitch_buttons')),
@@ -322,36 +298,14 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () async {
-            print('StitchCustomizationScreen: 戻るボタンが押されました');
-
             // プロジェクト固有の編み目設定を保存
             if (widget.onProjectStitchesChanged != null) {
-              print('StitchCustomizationScreen: プロジェクト固有の編み目設定を保存します');
               try {
                 await widget.onProjectStitchesChanged!(_stitches);
-                print('StitchCustomizationScreen: プロジェクト固有の編み目設定の保存完了');
-
-                // 保存完了を確認するためのログ
-                print('保存された編み目設定:');
-                for (int i = 0; i < _stitches.length; i++) {
-                  final stitch = _stitches[i];
-                  if (stitch is CrochetStitch) {
-                    print(
-                        '  $i: ${(stitch as CrochetStitch).name} (CrochetStitch)');
-                  } else if (stitch is CustomStitch) {
-                    print(
-                        '  $i: ${(stitch as CustomStitch).name} (CustomStitch)');
-                  } else {
-                    print('  $i: 不明な型 (${stitch.runtimeType})');
-                  }
-                }
               } catch (e) {
-                print(
-                    'StitchCustomizationScreen: プロジェクト固有の編み目設定の保存に失敗しました: $e');
               }
             }
 
-            print('StitchCustomizationScreen: 保存完了、画面を閉じます');
             // 変更があったことを通知して戻る
             Navigator.of(context).pop(true);
           },
@@ -411,6 +365,12 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                   stitch.imagePath!,
                                   width: 24,
                                   height: 24,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Text(
+                                      _getStitchName(stitch).substring(0, 1),
+                                      style: const TextStyle(fontSize: 16),
+                                    );
+                                  },
                                 )
                               : Text(
                                   _getStitchName(stitch),
@@ -472,37 +432,18 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   Future<void> _saveGlobalStitches() async {
     try {
-      print('=== 編み目設定保存開始 ===');
-      print('保存する編み目リスト:');
-      for (int i = 0; i < _stitches.length; i++) {
-        final stitch = _stitches[i];
-        print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
-      }
-
       // プロジェクト固有の編み目設定がある場合は、プロジェクト固有の設定として保存
       if (widget.projectStitches != null) {
-        print('プロジェクト固有の編み目設定として保存します');
-
         // プロジェクト固有の編み目設定を更新
         if (widget.onProjectStitchesChanged != null) {
-          print('プロジェクト固有の編み目設定を更新します');
           try {
             await widget.onProjectStitchesChanged!(_stitches);
-            print('✅ プロジェクト固有の編み目設定を保存しました');
           } catch (e) {
-            print('❌ プロジェクト固有の編み目設定の保存に失敗しました: $e');
           }
         }
       } else {
         // グローバル設定として保存
-        print('グローバル編み目設定として保存します');
-        final success =
-            await StitchSettingsService.saveGlobalStitches(_stitches);
-        if (success) {
-          print('✅ グローバル編み目設定を保存しました');
-        } else {
-          print('❌ グローバル編み目設定の保存に失敗しました');
-        }
+        await StitchSettingsService.saveGlobalStitches(_stitches);
       }
 
       // 保存成功後にUIを強制的に更新
@@ -510,32 +451,9 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         setState(() {});
       }
 
-      // 保存後の確認用ログ
-      if (widget.projectStitches != null) {
-        print('保存後の確認 - プロジェクト固有の編み目数: ${_stitches.length}');
-        for (int i = 0; i < _stitches.length; i++) {
-          final stitch = _stitches[i];
-          print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
-        }
-      } else {
-        final savedStitches = await StitchSettingsService.getGlobalStitches();
-        print('保存後の確認 - 読み込まれた編み目数: ${savedStitches.length}');
-        for (int i = 0; i < savedStitches.length; i++) {
-          final stitch = savedStitches[i];
-          print('  $i: ${_getStitchName(stitch)} (${stitch.runtimeType})');
-        }
-      }
-
       // 少し待ってから再度確認
       await Future.delayed(const Duration(milliseconds: 200));
-      if (widget.projectStitches != null) {
-        print('最終確認 - プロジェクト固有の編み目数: ${_stitches.length}');
-      } else {
-        final finalCheck = await StitchSettingsService.getGlobalStitches();
-        print('最終確認 - 保存された編み目数: ${finalCheck.length}');
-      }
     } catch (e) {
-      print('❌ 編み目設定保存エラー: $e');
     }
   }
 
@@ -559,8 +477,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         builder: (context, setDialogState) => AlertDialog(
           title: Text(tr('edit_stitch_buttons')),
           content: SizedBox(
-            width: double.maxFinite,
-            height: 400,
+            width: MediaQuery.of(context).size.width * 0.9,
+            height: MediaQuery.of(context).size.height * 0.7,
             child: Column(
               children: [
                 // 基本編み目セクション
@@ -576,16 +494,20 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                   const SizedBox(height: 8),
                   Expanded(
                     flex: 1,
-                    child: GridView.builder(
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                        childAspectRatio: 1,
-                      ),
-                      itemCount: availableBasicStitches.length,
-                      itemBuilder: (context, index) {
+                    child: Scrollbar(
+                      thumbVisibility: true,
+                      thickness: 6,
+                      radius: const Radius.circular(3),
+                      child: GridView.builder(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                          childAspectRatio: 1,
+                        ),
+                        itemCount: availableBasicStitches.length,
+                        itemBuilder: (context, index) {
                         final stitch = availableBasicStitches[index];
                         final isSelected =
                             _selectedBasicStitches.contains(stitch);
@@ -607,31 +529,44 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                 Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Expanded(
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        child: stitch.imagePath != null
-                                            ? Image.asset(
-                                                stitch.imagePath!,
-                                                fit: BoxFit.contain,
-                                              )
-                                            : Text(
+                                    Container(
+                                      height: 40,
+                                      padding: const EdgeInsets.all(4),
+                                      child: stitch.imagePath != null
+                                          ? Image.asset(
+                                              stitch.imagePath!,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (context, error, stackTrace) {
+                                                return Center(
+                                                  child: Text(
+                                                    _getStitchName(stitch).substring(0, 1),
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: stitch.color,
+                                                    ),
+                                                  ),
+                                                );
+                                              },
+                                            )
+                                          : Center(
+                                              child: Text(
                                                 _getStitchName(stitch)
                                                     .substring(0, 1),
                                                 style: TextStyle(
-                                                  fontSize: 18,
+                                                  fontSize: 16,
                                                   fontWeight: FontWeight.bold,
                                                   color: stitch.color,
                                                 ),
                                               ),
-                                      ),
+                                            ),
                                     ),
                                     Padding(
-                                      padding: const EdgeInsets.all(4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                       child: Text(
                                         _getStitchName(stitch),
                                         style: const TextStyle(
-                                          fontSize: 10,
+                                          fontSize: 9,
                                           fontWeight: FontWeight.bold,
                                         ),
                                         textAlign: TextAlign.center,
@@ -663,6 +598,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                           ),
                         );
                       },
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -680,16 +616,20 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                   const SizedBox(height: 8),
                   Expanded(
                     flex: 2,
-                    child: GridView.builder(
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                        childAspectRatio: 1,
-                      ),
-                      itemCount: availablePremiumStitches.length,
-                      itemBuilder: (context, index) {
+                    child: Scrollbar(
+                      thumbVisibility: true,
+                      thickness: 6,
+                      radius: const Radius.circular(3),
+                      child: GridView.builder(
+                        gridDelegate:
+                            const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                          childAspectRatio: 1,
+                        ),
+                        itemCount: availablePremiumStitches.length,
+                        itemBuilder: (context, index) {
                         final stitch = availablePremiumStitches[index];
                         final isSelected =
                             _selectedPremiumStitches.contains(stitch);
@@ -711,21 +651,31 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                 Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Expanded(
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        child: Image.asset(
-                                          stitch['image']!,
-                                          fit: BoxFit.contain,
-                                        ),
+                                    Container(
+                                      height: 40,
+                                      padding: const EdgeInsets.all(4),
+                                      child: Image.asset(
+                                        stitch['image']!,
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return Center(
+                                            child: Text(
+                                              _getStitchName(stitch).substring(0, 1),
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          );
+                                        },
                                       ),
                                     ),
                                     Padding(
-                                      padding: const EdgeInsets.all(4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                       child: Text(
                                         _getStitchName(stitch),
                                         style: const TextStyle(
-                                          fontSize: 10,
+                                          fontSize: 9,
                                           fontWeight: FontWeight.bold,
                                         ),
                                         textAlign: TextAlign.center,
@@ -757,6 +707,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                           ),
                         );
                       },
+                      ),
                     ),
                   ),
                 ],

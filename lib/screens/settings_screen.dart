@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:in_app_review/in_app_review.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'stitch_customization_screen.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 import 'terms_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'upgrade_screen.dart';
-import 'home_screen.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
-import '../services/storage_service.dart';
+import '../services/backup_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../models/crochet_project.dart';
 
@@ -69,7 +69,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           // トライアル期間表示
           Consumer<SubscriptionProvider>(
             builder: (context, subscriptionProvider, child) {
-              if (subscriptionProvider.isInTrialPeriod && subscriptionProvider.isTrialActive) {
+              if (subscriptionProvider.isInTrialPeriod &&
+                  subscriptionProvider.isTrialActive) {
                 return Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 24),
@@ -81,7 +82,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.green.withOpacity(0.3),
+                        color: Colors.green.withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 4),
                       ),
@@ -186,6 +187,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ),
           const SizedBox(height: 32),
+          // データバックアップ・復元セクション
+          Text(
+            'データ管理',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            color: Colors.white,
+            elevation: 1,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Column(
+              children: [
+                ListTile(
+                  leading:
+                      const Icon(Icons.backup_outlined, color: Colors.blue),
+                  title: const Text('データをバックアップ'),
+                  subtitle: const Text('プロジェクトと編み目設定を保存'),
+                  onTap: () => _exportBackup(context),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading:
+                      const Icon(Icons.restore_outlined, color: Colors.green),
+                  title: const Text('データを復元'),
+                  subtitle: const Text('バックアップファイルから復元'),
+                  onTap: () => _importBackup(context),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
           ListTile(
             leading: const Icon(Icons.mail_outline),
             title: Text(tr('contact')),
@@ -229,10 +266,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
-                                    const Text(
-                      'v1.0.6',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                const Text(
+                  'v1.0.6',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
               ],
             ),
           ),
@@ -241,16 +278,179 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // バックアップをエクスポート
+  Future<void> _exportBackup(BuildContext context) async {
+    try {
+      // ローディングダイアログを表示
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // バックアップを実行
+      final success = await BackupService.exportBackup();
+
+      // ローディングダイアログを閉じる
+      if (mounted) {
+        Navigator.of(context).pop();
+
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('バックアップを作成しました'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('バックアップの作成に失敗しました'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // ローディングダイアログを閉じる
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
+  // バックアップをインポート
+  Future<void> _importBackup(BuildContext context) async {
+    try {
+      // ファイルピッカーを開く
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+      );
+
+      if (result == null || result.files.isEmpty) {
+        // ユーザーがキャンセルした場合
+        return;
+      }
+
+      final file = File(result.files.single.path!);
+      final jsonString = await file.readAsString();
+
+      // バックアップファイルを検証
+      final isValid = await BackupService.validateBackupFile(jsonString);
+      if (!isValid) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('無効なバックアップファイルです'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        return;
+      }
+
+      // 確認ダイアログを表示
+      final shouldRestore = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('データを復元'),
+          content: const Text(
+            '現在のデータは上書きされます。\n本当に復元しますか？',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('復元'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldRestore != true) {
+        return;
+      }
+
+      // ローディングダイアログを表示
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
+
+      // バックアップを復元
+      final success = await BackupService.restoreBackup(jsonString);
+
+      // ローディングダイアログを閉じる
+      if (mounted) {
+        Navigator.of(context).pop();
+
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('データを復元しました。アプリを再起動してください。'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('データの復元に失敗しました'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      // ローディングダイアログを閉じる（表示されている場合）
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('エラーが発生しました: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+  }
+
   // iOSのみでアプリ内評価を実行
   Future<void> _requestAppReview() async {
     try {
       final inAppReview = InAppReview.instance;
-      
+
       // iOSのみで評価機能を利用可能かチェック
       if (await inAppReview.isAvailable()) {
         // アプリ内評価をリクエスト
         await inAppReview.requestReview();
-        
+
         // 評価完了後のフィードバック
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -274,7 +474,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       }
     } catch (e) {
-      print('アプリ評価エラー: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

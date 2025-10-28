@@ -19,12 +19,17 @@ class ControlButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // EasyLocalizationが初期化されるまで待つ
+    // context.localeを参照することで、ローカライゼーションの準備を確認
+    // ignore: unused_local_variable
+    final locale = context.locale;
+
     return Row(
       children: [
         Expanded(
           child: ControlButton(
             icon: Icons.undo,
-            label: tr('undo'),
+            label: 'undo'.tr(),
             onPressed: canRemoveStitch ? onRemoveStitch : null,
             color: Colors.orange,
           ),
@@ -33,7 +38,7 @@ class ControlButtons extends StatelessWidget {
         Expanded(
           child: ControlButton(
             icon: Icons.check_circle,
-            label: tr('complete_row'),
+            label: 'complete_row'.tr(),
             onPressed: canCompleteRow ? onCompleteRow : null,
             color: Colors.green,
           ),
@@ -42,7 +47,7 @@ class ControlButtons extends StatelessWidget {
         Expanded(
           child: ControlButton(
             icon: Icons.refresh,
-            label: tr('reset'),
+            label: 'reset'.tr(),
             onPressed: onReset,
             color: Colors.grey,
           ),
@@ -80,8 +85,8 @@ class ControlButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
               color: onPressed != null
-                  ? color.withOpacity(0.3)
-                  : Colors.grey.withOpacity(0.3),
+                  ? color.withValues(alpha: 0.3)
+                  : Colors.grey.withValues(alpha: 0.3),
               width: 1,
             ),
           ),

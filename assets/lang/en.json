@@ -39,5 +39,8 @@
   "watch_ad_reset_title": "Watch Video Ad?",
   "watch_ad_reset_message": "Watch a video ad to reset the counter.",
   "watch_ad": "Watch Ad",
-  "no_thanks": "No, Thanks"
+  "no_thanks": "No, Thanks",
+  "save_changes_title": "Save Changes",
+  "save_changes_message": "Do you want to save your changes?",
+  "dont_save": "Don't Save"
 } 

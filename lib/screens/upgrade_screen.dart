@@ -28,6 +28,8 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+  late AnimationController _pulseController;
+  late Animation<double> _pulseAnimation;
 
   static List<String> get _kProductIds {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -68,11 +70,26 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       curve: Curves.easeOutCubic,
     ));
     _animationController.forward();
+
+    // パルスアニメーション（無料トライアルバナー用）
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _pulseAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+    _pulseController.repeat(reverse: true);
   }
 
   @override
   void dispose() {
     _animationController.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -84,9 +101,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     });
 
     try {
-      print('購入情報の復元を開始');
       await _iap.restorePurchases();
-      print('購入情報の復元完了');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -97,7 +112,6 @@ class _UpgradeScreenState extends State<UpgradeScreen>
         );
       }
     } catch (e) {
-      print('購入情報の復元エラー: $e');
       if (mounted) {
         setState(() {
           _error = '購入情報の復元に失敗しました: $e';
@@ -119,10 +133,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   }
 
   void _handlePurchaseUpdates(List<PurchaseDetails> purchaseDetailsList) {
-    print('購入情報を受信: ${purchaseDetailsList.length}件');
     purchaseDetailsList.forEach((PurchaseDetails purchaseDetails) async {
-      print(
-          '購入詳細: ${purchaseDetails.productID}, status: ${purchaseDetails.status}');
       if (purchaseDetails.status == PurchaseStatus.pending) {
         // 購入処理中
         setState(() {
@@ -138,16 +149,13 @@ class _UpgradeScreenState extends State<UpgradeScreen>
         } else if (purchaseDetails.status == PurchaseStatus.purchased ||
             purchaseDetails.status == PurchaseStatus.restored) {
           // 購入成功または復元成功
-          print('購入成功: ${purchaseDetails.productID}');
-
           // プレミアム状態を更新
           final subscriptionProvider = context.read<SubscriptionProvider>();
-          
+
           if (purchaseDetails.productID == 'yearly_sub') {
             // 年間プランの場合、トライアルを開始
             if (!subscriptionProvider.hasUsedTrial) {
               await subscriptionProvider.startFreeTrial();
-              print('年間プランの無料トライアルを開始しました');
             } else {
               // トライアル使用済みの場合は通常のサブスクリプションとして処理
               final expiryDate = DateTime.now().add(const Duration(days: 365));
@@ -307,12 +315,36 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     );
   }
 
+  Widget _buildBenefitItem(IconData icon, String text) {
+    return Column(
+      children: [
+        Icon(
+          icon,
+          color: Colors.white,
+          size: 28,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            height: 1.3,
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildPlanCard(ProductDetails product) {
     // プラン名を日本語で表示
     String planName = '';
     String planDescription = '';
     Color planColor = Colors.blue;
     List<String> features = [];
+    bool isYearlyPlan = false;
 
     if (product.id == 'android.test.purchased') {
       planName = 'テスト用 - 購入成功';
@@ -324,237 +356,382 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       planDescription = '開発環境用のテスト商品（購入キャンセル）';
       planColor = Colors.orange;
       features = ['テスト機能1', 'テスト機能2'];
-    } else if (product.id == 'monthly-sub') {
+    } else if (product.id == 'monthly_sub') {
       planName = '月額プラン';
       planDescription = '月額300円でプレミアム機能を利用';
       planColor = const Color(0xFFEC407A);
       features = ['無制限の編み目カウント', 'カスタム編み目設定', '広告なし'];
-    } else if (product.id == 'yearly-sub') {
+    } else if (product.id == 'yearly_sub') {
+      isYearlyPlan = true;
       final subscriptionProvider = context.watch<SubscriptionProvider>();
       final canUseTrial = !subscriptionProvider.hasUsedTrial;
-      
+
       planName = '年間プラン';
       if (canUseTrial) {
-        planDescription = '最初の3日間無料トライアル、その後年間3000円（月額250円相当）';
+        planDescription = '年間3000円（月額250円相当）';
       } else {
         planDescription = '年間3000円でプレミアム機能を利用（月額250円相当）';
       }
       planColor = const Color(0xFF9C27B0);
-      features = ['無制限の編み目カウント', 'カスタム編み目設定', '広告なし'];
-      
-      // トライアル対象の場合の特典を追加
-      if (canUseTrial) {
-        features.insert(0, '3日間無料トライアル');
-      }
+      features = ['無制限の編み目カウント', 'カスタム編み目設定', '広告なし', 'オフライン利用可能'];
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: planColor.withOpacity(0.3),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: planColor.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return Consumer<SubscriptionProvider>(
+      builder: (context, provider, child) {
+        final canUseTrial = !provider.hasUsedTrial && isYearlyPlan;
+
+        return Container(
+          margin: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: canUseTrial
+                  ? Colors.green.withOpacity(0.5)
+                  : planColor.withOpacity(0.3),
+              width: canUseTrial ? 3 : 2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color:
+                    (canUseTrial ? Colors.green : planColor).withOpacity(0.2),
+                blurRadius: canUseTrial ? 20 : 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
           ),
-        ],
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
+          child: Column(
+            children: [
+              // 無料トライアル大バナー（年間プランでトライアル可能な場合のみ）
+              if (canUseTrial)
                 Container(
-                  width: 50,
-                  height: 50,
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: planColor,
-                    borderRadius: BorderRadius.circular(25),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF00E676), Color(0xFF00C853)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(18),
+                      topRight: Radius.circular(18),
+                    ),
                   ),
-                  child: Icon(
-                    product.id == 'yearly-sub' ? Icons.star : Icons.favorite,
-                    color: Colors.white,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        planName,
-                        style: const TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(
+                            Icons.celebration,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                          SizedBox(width: 12),
+                          Flexible(
+                            child: Text(
+                              '今だけ！\n3日間無料トライアル',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                height: 1.3,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Icon(
+                            Icons.celebration,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ],
                       ),
-                      Text(
-                        planDescription,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[600],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (product.id == 'yearly_sub' ||
-                    product.id == 'android.test.purchased')
-                  Row(
-                    children: [
-                      // お得バッジ
+                      const SizedBox(height: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
+                          horizontal: 16,
+                          vertical: 8,
                         ),
                         decoration: BoxDecoration(
-                          gradient: const LinearGradient(
-                            colors: [Colors.orange, Colors.deepOrange],
-                          ),
+                          color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: const Text(
-                          'お得',
+                          'すべての機能を3日間無料でお試し！',
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                      // 無料トライアルバッジ（年間プランで未使用の場合）
-                      if (product.id == 'yearly_sub')
-                        Consumer<SubscriptionProvider>(
-                          builder: (context, provider, child) {
-                            if (!provider.hasUsedTrial) {
-                              return Container(
-                                margin: const EdgeInsets.only(left: 8),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 6,
+                      const SizedBox(height: 8),
+                      const Text(
+                        'いつでもキャンセル可能 • 自動更新前に通知',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: planColor,
+                            borderRadius: BorderRadius.circular(25),
+                          ),
+                          child: Icon(
+                            product.id == 'yearly_sub'
+                                ? Icons.star
+                                : Icons.favorite,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                planName,
+                                style: const TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [Colors.green, Colors.teal],
-                                  ),
-                                  borderRadius: BorderRadius.circular(20),
+                              ),
+                              Text(
+                                planDescription,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
                                 ),
-                                child: const Text(
-                                  '3日間無料',
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isYearlyPlan && !canUseTrial)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Colors.orange, Colors.deepOrange],
+                              ),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'お得',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+
+                    // 無料トライアル期間の詳細（年間プランでトライアル可能な場合）
+                    if (canUseTrial) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.green.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.green.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: const [
+                                Icon(
+                                  Icons.calendar_today,
+                                  color: Color(0xFF00C853),
+                                  size: 20,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'トライアル期間終了まで',
                                   style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF00C853),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '3日間無料でお試し後、自動的に年間プラン（¥3,000/年）に移行します',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Text(
+                                '💡 トライアル期間中にキャンセルすれば課金されません',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF00C853),
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    ...features.map((feature) => Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.check_circle,
+                                color: planColor,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                feature,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                    const SizedBox(height: 24),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (canUseTrial) ...[
+                              const Text(
+                                '今だけ',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF00C853),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const Text(
+                                '¥0',
+                                style: TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF00C853),
+                                ),
+                              ),
+                              const Text(
+                                '最初の3日間',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ] else ...[
+                              Text(
+                                '価格',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                              Text(
+                                product.price,
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: planColor,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (!_purchasePending && product.id.isNotEmpty)
+                          ElevatedButton(
+                            onPressed: () => _buy(product),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: canUseTrial
+                                  ? const Color(0xFF00C853)
+                                  : planColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 32,
+                                vertical: 16,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(25),
+                              ),
+                              elevation: canUseTrial ? 8 : 4,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (canUseTrial)
+                                  const Icon(Icons.play_arrow, size: 20),
+                                if (canUseTrial) const SizedBox(width: 4),
+                                Text(
+                                  canUseTrial ? '無料で始める' : '購入',
+                                  style: const TextStyle(
+                                    fontSize: 16,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              );
-                            }
-                            return const SizedBox.shrink();
-                          },
-                        ),
-                    ],
-                  ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            ...features.map((feature) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.check_circle,
-                        color: planColor,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        feature,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
-            const SizedBox(height: 24),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '価格',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey[600],
-                      ),
-                    ),
-                    Text(
-                      product.price,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: planColor,
-                      ),
+                              ],
+                            ),
+                          ),
+                        if (_purchasePending)
+                          const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.grey),
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
-                if (!_purchasePending && product.id.isNotEmpty)
-                  Consumer<SubscriptionProvider>(
-                    builder: (context, provider, child) {
-                      final isYearlyPlan = product.id == 'yearly-sub';
-                      final canUseTrial = !provider.hasUsedTrial && isYearlyPlan;
-                      
-                      return ElevatedButton(
-                        onPressed: () => _buy(product),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: planColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 32,
-                            vertical: 16,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(25),
-                          ),
-                          elevation: 4,
-                        ),
-                        child: Text(
-                          canUseTrial ? '無料で始める' : '購入',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                if (_purchasePending)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.grey),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -616,7 +793,168 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 20),
+                              const SizedBox(height: 16),
+
+                              // 無料トライアルの大きな宣伝バナー（年間プラン未使用の場合）
+                              Consumer<SubscriptionProvider>(
+                                builder: (context, provider, child) {
+                                  if (!provider.hasUsedTrial) {
+                                    return Column(
+                                      children: [
+                                        ScaleTransition(
+                                          scale: _pulseAnimation,
+                                          child: Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.all(24),
+                                            decoration: BoxDecoration(
+                                              gradient: const LinearGradient(
+                                                colors: [
+                                                  Color(0xFF00E676),
+                                                  Color(0xFF00C853),
+                                                ],
+                                                begin: Alignment.topLeft,
+                                                end: Alignment.bottomRight,
+                                              ),
+                                              borderRadius:
+                                                  BorderRadius.circular(20),
+                                              boxShadow: [
+                                                BoxShadow(
+                                                  color: Colors.green
+                                                      .withOpacity(0.4),
+                                                  blurRadius: 20,
+                                                  offset: const Offset(0, 8),
+                                                ),
+                                              ],
+                                            ),
+                                            child: Column(
+                                              children: [
+                                                // キラキラアイコン行
+                                                Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment.center,
+                                                  children: const [
+                                                    Icon(Icons.star,
+                                                        color: Colors.white,
+                                                        size: 24),
+                                                    SizedBox(width: 8),
+                                                    Icon(Icons.celebration,
+                                                        color: Colors.white,
+                                                        size: 32),
+                                                    SizedBox(width: 8),
+                                                    Icon(Icons.star,
+                                                        color: Colors.white,
+                                                        size: 24),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 12),
+                                                // メインメッセージ
+                                                const Text(
+                                                  '期間限定！',
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                    fontWeight: FontWeight.w600,
+                                                    letterSpacing: 2,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                const Text(
+                                                  '3日間\n無料トライアル',
+                                                  textAlign: TextAlign.center,
+                                                  style: TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 32,
+                                                    fontWeight: FontWeight.bold,
+                                                    height: 1.2,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 12),
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 20,
+                                                    vertical: 10,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.white,
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            25),
+                                                    boxShadow: [
+                                                      BoxShadow(
+                                                        color: Colors.black
+                                                            .withOpacity(0.1),
+                                                        blurRadius: 8,
+                                                        offset:
+                                                            const Offset(0, 2),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  child: Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: const [
+                                                      Icon(
+                                                        Icons.verified,
+                                                        color:
+                                                            Color(0xFF00C853),
+                                                        size: 20,
+                                                      ),
+                                                      SizedBox(width: 8),
+                                                      Text(
+                                                        'すべての機能が使い放題',
+                                                        style: TextStyle(
+                                                          color:
+                                                              Color(0xFF00C853),
+                                                          fontSize: 16,
+                                                          fontWeight:
+                                                              FontWeight.bold,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 16),
+                                                // 特典リスト
+                                                Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceEvenly,
+                                                  children: [
+                                                    _buildBenefitItem(
+                                                        Icons.check_circle,
+                                                        'いつでも\nキャンセル可能'),
+                                                    Container(
+                                                      width: 1,
+                                                      height: 40,
+                                                      color: Colors.white
+                                                          .withOpacity(0.3),
+                                                    ),
+                                                    _buildBenefitItem(
+                                                        Icons.notifications_off,
+                                                        '自動更新前に\n通知'),
+                                                    Container(
+                                                      width: 1,
+                                                      height: 40,
+                                                      color: Colors.white
+                                                          .withOpacity(0.3),
+                                                    ),
+                                                    _buildBenefitItem(
+                                                        Icons.credit_card_off,
+                                                        '期間中は\n無料'),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 20),
+                                      ],
+                                    );
+                                  }
+                                  return const SizedBox(height: 4);
+                                },
+                              ),
 
                               // メインコンテンツ
                               Container(
@@ -759,20 +1097,23 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                 ),
 
                               // 管理ボタン群（iOSのみ）
-                              if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                              if (defaultTargetPlatform ==
+                                  TargetPlatform.iOS) ...[
                                 const SizedBox(height: 24),
                                 Center(
                                   child: Column(
                                     children: [
                                       // 支払い状況確認ボタン
                                       TextButton.icon(
-                                        onPressed:
-                                            _loading ? null : _checkPaymentStatus,
+                                        onPressed: _loading
+                                            ? null
+                                            : _checkPaymentStatus,
                                         icon: _loading
                                             ? const SizedBox(
                                                 width: 16,
                                                 height: 16,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                 ),
                                               )
@@ -798,13 +1139,15 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                             ? const SizedBox(
                                                 width: 16,
                                                 height: 16,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                 ),
                                               )
                                             : const Icon(Icons.restore),
-                                        label: Text(
-                                            _restorePending ? '復元中...' : '購入履歴を復元'),
+                                        label: Text(_restorePending
+                                            ? '復元中...'
+                                            : '購入履歴を復元'),
                                         style: TextButton.styleFrom(
                                           foregroundColor: Colors.white,
                                           padding: const EdgeInsets.symmetric(
@@ -1091,7 +1434,6 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   // 既存のサブスクリプションを確認
   Future<void> _checkExistingSubscription() async {
     try {
-      print('既存のサブスクリプションを確認中...');
       final subscriptionProvider = context.read<SubscriptionProvider>();
 
       // トライアル期間の状態をチェック
@@ -1099,27 +1441,25 @@ class _UpgradeScreenState extends State<UpgradeScreen>
 
       // 現在のプレミアム状態を確認
       if (subscriptionProvider.isPremium) {
-        print('既にプレミアム状態です');
         if (subscriptionProvider.isInTrialPeriod) {
-          print('無料トライアル期間中です。残り${subscriptionProvider.trialDaysRemaining}日');
           setState(() {
-            _activePlan = '無料トライアル（残り${subscriptionProvider.trialDaysRemaining}日）';
+            _activePlan =
+                '無料トライアル（残り${subscriptionProvider.trialDaysRemaining}日）';
             _loading = false;
           });
         } else {
           setState(() {
-            _activePlan = subscriptionProvider.activeSubscriptionId ?? 'unknown';
+            _activePlan =
+                subscriptionProvider.activeSubscriptionId ?? 'unknown';
             _loading = false;
           });
         }
       } else {
-        print('プレミアム状態ではありません');
         setState(() {
           _loading = false;
         });
       }
     } catch (e) {
-      print('サブスクリプション確認エラー: $e');
       setState(() {
         _loading = false;
       });

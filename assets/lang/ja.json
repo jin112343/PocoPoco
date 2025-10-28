@@ -39,5 +39,8 @@
   "watch_ad_reset_title": "動画広告を見ますか？",
   "watch_ad_reset_message": "動画広告を見ることで、カウントをリセットできます。",
   "watch_ad": "動画広告を見る",
-  "no_thanks": "いいえ、結構です"
+  "no_thanks": "いいえ、結構です",
+  "save_changes_title": "変更を保存",
+  "save_changes_message": "変更を保存しますか?",
+  "dont_save": "保存しない"
 } 

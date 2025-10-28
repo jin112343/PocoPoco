@@ -9,7 +9,6 @@ import '../widgets/stitch_history_section.dart';
 import '../widgets/control_buttons.dart';
 import 'settings_screen.dart';
 import 'home_screen.dart';
-import 'stitch_customization_screen.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'dart:io';
 import 'package:provider/provider.dart';
@@ -71,6 +70,13 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     super.didChangeDependencies();
     _initializeSubscriptionProvider();
     _checkPremiumStatusChangeOptimized();
+
+    // 画面が表示されるたびに編み目設定を再読み込み
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _reloadProjectCustomStitchesOptimized();
+      }
+    });
   }
 
   /// 最適化されたサブスクリプションプロバイダーの初期化
@@ -105,8 +111,11 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   Future<void> _initializeOptimized() async {
     if (_isInitializing) return;
 
-    try {
+    setState(() {
       _isInitializing = true;
+    });
+
+    try {
       _logger.i('最適化された初期化開始');
 
       if (widget.project != null) {
@@ -115,15 +124,25 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         _initializeNewProject();
       }
 
-      // 編み目設定の初期化（一度だけ）
-      await _initializeStitchSettings();
-
-      _logger.i('最適化された初期化完了');
+      _logger.i('基本初期化完了、画面を表示');
     } catch (e, stackTrace) {
       _logger.e('初期化エラー', error: e, stackTrace: stackTrace);
       _initializeNewProject(); // フォールバック
     } finally {
-      _isInitializing = false;
+      setState(() {
+        _isInitializing = false;
+      });
+      
+      // 画面表示後に編み目設定を遅延初期化
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        if (mounted) {
+          await _initializeStitchSettings();
+          if (mounted) {
+            setState(() {}); // UI更新
+            _logger.i('編み目設定の遅延初期化完了');
+          }
+        }
+      });
     }
   }
 
@@ -158,7 +177,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   Future<void> _initializeStitchSettings() async {
     try {
       if (_cachedProjectStitches == null) {
-        if (widget.project?.customStitches?.isNotEmpty == true) {
+        if (widget.project?.customStitches.isNotEmpty ?? false) {
           _cachedProjectStitches = widget.project!.customStitches;
         } else {
           _cachedProjectStitches = StitchSettingsService.getDefaultStitches();
@@ -182,7 +201,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       if (s is CrochetStitch) {
         return s.name;
       } else if (s is CustomStitch) {
-        return '${s.name}_${s.color.value}';
+        return '${s.name}_${s.color.toARGB32()}';
       }
       return s.toString();
     }));
@@ -235,7 +254,9 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
               (p) => p.id == widget.project!.id,
           orElse: () => widget.project!,
         );
-        newStitches = currentProject.customStitches ?? StitchSettingsService.getDefaultStitches();
+        newStitches = currentProject.customStitches.isNotEmpty
+            ? currentProject.customStitches
+            : StitchSettingsService.getDefaultStitches();
       } else {
         newStitches = StitchSettingsService.getDefaultStitches();
       }
@@ -420,8 +441,11 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       return false;
     }
 
-    try {
+    setState(() {
       _isSaving = true;
+    });
+
+    try {
       _logger.i('プロジェクト保存開始');
 
       final project = CrochetProject(
@@ -458,7 +482,9 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       _showSnackBar('保存に失敗しました', Colors.red);
       return false;
     } finally {
-      _isSaving = false;
+      setState(() {
+        _isSaving = false;
+      });
     }
   }
 
@@ -498,11 +524,11 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         } else if (stitch is CustomStitch) {
           historyItem['stitch'] = {
             'type': 'custom',
-            'name': stitch.name,
+            'name': stitch.nameEn, // 識別子として英語名を使用
             'nameJa': stitch.nameJa,
             'nameEn': stitch.nameEn,
             'imagePath': stitch.imagePath,
-            'color': stitch.color.value,
+            'color': stitch.color.toARGB32(),
             'isOval': stitch.isOval,
           };
         } else {
@@ -670,82 +696,128 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: _showSaveDialogOptimized,
-      child: Scaffold(
-        backgroundColor: const Color(0xFFFCE4EC),
-        appBar: _buildAppBar(),
-        body: SafeArea(
-          child: Column(
-            children: [
-              // 編み目履歴
-              Expanded(
-                flex: 1,
-                child: StitchHistorySection(
-                  stitchHistory: _stitchHistory,
-                  currentStitches: _getCurrentStitchesOptimized(),
-                  onRowTap: (rowNumber) {
-                    _showSnackBar('$rowNumber段目に移動しました', const Color(0xFFAD1457));
-                  },
-                  onRowCompleted: (rowNumber) {
-                    // 段完成時の処理
-                  },
-                  onStitchRemoved: (rowNumber) async {
-                    await _removeRowOptimized(rowNumber);
-                  },
-                  currentRow: _getCurrentRow(),
-                  currentStitchCount: _getCurrentStitchCount(),
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // 編み目パターンとコントロール
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    // 最適化されたStitchPatternGrid
-                    StitchPatternGrid(
-                      key: ValueKey('optimized_${_cachedProjectStitchesHash ?? 0}'),
-                      selectedStitch: _selectedStitch,
-                      onStitchSelected: (stitch) {
-                        setState(() {
-                          _selectedStitch = stitch;
-                        });
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) async {
+        if (!didPop) {
+          final shouldPop = await _showSaveDialogOptimized();
+          if (shouldPop && context.mounted) {
+            Navigator.of(context).pop();
+          }
+        }
+      },
+      child: Stack(
+        children: [
+          Scaffold(
+            backgroundColor: const Color(0xFFFCE4EC),
+            appBar: _buildAppBar(),
+            body: SafeArea(
+              child: Column(
+                children: [
+                  // 編み目履歴
+                  Expanded(
+                    flex: 1,
+                    child: StitchHistorySection(
+                      stitchHistory: _stitchHistory,
+                      currentStitches: _getCurrentStitchesOptimized(),
+                      onRowTap: (rowNumber) {
+                        _showSnackBar('$rowNumber段目に移動しました', const Color(0xFFAD1457));
                       },
-                      onStitchAdded: _addStitch,
-                      projectStitches: _getCurrentStitchesOptimized(),
-                      onStitchSettingsChanged: () async {
-                        await _reloadProjectCustomStitchesOptimized();
+                      onRowCompleted: (rowNumber) {
+                        // 段完成時の処理
                       },
-                      onProjectStitchesChanged: (newStitches) async {
-                        await _updateProjectStitchesOptimized(newStitches);
+                      onStitchRemoved: (rowNumber) async {
+                        await _removeRowOptimized(rowNumber);
                       },
+                      currentRow: _getCurrentRow(),
+                      currentStitchCount: _getCurrentStitchCount(),
                     ),
-                    const SizedBox(height: 20),
-                    ControlButtons(
-                      onRemoveStitch: _removeLastStitch,
-                      onCompleteRow: _completeRow,
-                      onReset: _resetAll,
-                      canRemoveStitch: _stitchHistory.isNotEmpty,
-                      canCompleteRow: _stitchCount > 0,
-                    ),
-                  ],
-                ),
-              ),
+                  ),
+                  const SizedBox(height: 10),
 
-              // バナー広告
-              if (!(_subscriptionProvider?.isPremium ?? false) &&
-                  _isBannerAdLoaded &&
-                  _bannerAd != null)
-                Container(
-                  width: _bannerAd!.size.width.toDouble(),
-                  height: _bannerAd!.size.height.toDouble(),
-                  child: AdWidget(ad: _bannerAd!),
-                ),
-            ],
+                  // 編み目パターンとコントロール
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        // 最適化されたStitchPatternGrid
+                        StitchPatternGrid(
+                          key: ValueKey('optimized_${_cachedProjectStitchesHash ?? 0}'),
+                          selectedStitch: _selectedStitch,
+                          onStitchSelected: (stitch) {
+                            setState(() {
+                              _selectedStitch = stitch;
+                            });
+                          },
+                          onStitchAdded: _addStitch,
+                          projectStitches: _getCurrentStitchesOptimized(),
+                          onStitchSettingsChanged: () async {
+                            await _reloadProjectCustomStitchesOptimized();
+                          },
+                          onProjectStitchesChanged: (newStitches) async {
+                            await _updateProjectStitchesOptimized(newStitches);
+                          },
+                        ),
+                        const SizedBox(height: 20),
+                        ControlButtons(
+                          onRemoveStitch: _removeLastStitch,
+                          onCompleteRow: _completeRow,
+                          onReset: _resetAll,
+                          canRemoveStitch: _stitchHistory.isNotEmpty,
+                          canCompleteRow: _stitchCount > 0,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // バナー広告
+                  if (!(_subscriptionProvider?.isPremium ?? false) &&
+                      _isBannerAdLoaded &&
+                      _bannerAd != null)
+                    Container(
+                      width: _bannerAd!.size.width.toDouble(),
+                      height: _bannerAd!.size.height.toDouble(),
+                      child: AdWidget(ad: _bannerAd!),
+                    ),
+                ],
+              ),
+            ),
           ),
-        ),
+          // ローディングオーバーレイ
+          if (_isSaving || _isInitializing)
+            Container(
+              color: Colors.black.withOpacity(0.5),
+              child: Center(
+                child: Card(
+                  elevation: 8,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(
+                          color: Color(0xFFEC407A),
+                          strokeWidth: 4,
+                        ),
+                        const SizedBox(height: 24),
+                        Text(
+                          _isSaving ? '保存中...' : '読み込み中...',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF333333),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -858,16 +930,16 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
-        title: const Text('変更を保存'),
-        content: const Text('変更を保存しますか？'),
+        title: Text(tr('save_changes_title')),
+        content: Text(tr('save_changes_message')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('保存しない'),
+            child: Text(tr('dont_save')),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('保存'),
+            child: Text(tr('save')),
           ),
         ],
       ),
