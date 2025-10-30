@@ -34,11 +34,15 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   static List<String> get _kProductIds {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       return [
-        'yearly_sub', // 年間サブスクリプション（iOSのみ）
-        'monthly_sub', // 月額サブスクリプション（iOSのみ）
+        'yearly_sub', // 年間サブスクリプション（iOS）
+        'monthly_sub', // 月額サブスクリプション（iOS）
       ];
     }
-    return [];
+    // Android 用のID
+    return [
+      'yearly_sub', // 年間サブスクリプション（Android）
+      'monthly-sub', // 月額サブスクリプション（Android）
+    ];
   }
 
   @override
@@ -165,7 +169,8 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                 expiryDate: expiryDate,
               );
             }
-          } else if (purchaseDetails.productID == 'monthly_sub') {
+          } else if (purchaseDetails.productID == 'monthly_sub' ||
+              purchaseDetails.productID == 'monthly-sub') {
             // 月額プランの場合は通常のサブスクリプションとして処理
             final expiryDate = DateTime.now().add(const Duration(days: 30));
             subscriptionProvider.setPremium(
@@ -253,7 +258,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     final PurchaseParam purchaseParam = PurchaseParam(productDetails: product);
 
     try {
-      if (product.id == 'monthly_sub' || product.id == 'yearly_sub') {
+      if (product.id == 'monthly_sub' ||
+          product.id == 'monthly-sub' ||
+          product.id == 'yearly_sub') {
         // サブスクリプション商品 - buyConsumableを使用
         _iap.buyConsumable(purchaseParam: purchaseParam);
       } else {
@@ -356,7 +363,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       planDescription = '開発環境用のテスト商品（購入キャンセル）';
       planColor = Colors.orange;
       features = ['テスト機能1', 'テスト機能2'];
-    } else if (product.id == 'monthly_sub') {
+    } else if (product.id == 'monthly_sub' || product.id == 'monthly-sub') {
       planName = '月額プラン';
       planDescription = '月額300円でプレミアム機能を利用';
       planColor = const Color(0xFFEC407A);
@@ -956,6 +963,85 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                 },
                               ),
 
+                              // Android限定クーポン告知バナー
+                              if (defaultTargetPlatform == TargetPlatform.android)
+                                Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 20),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    gradient: const LinearGradient(
+                                      colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFF1976D2).withValues(alpha: 0.3),
+                                        blurRadius: 12,
+                                        offset: const Offset(0, 6),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: const [
+                                          Icon(Icons.android, color: Colors.white, size: 22),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Android限定キャンペーン',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'クーポンコード入力で今だけ無料！',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: const Text(
+                                          'クーポンコード：amimono',
+                                          style: TextStyle(
+                                            color: Color(0xFF1976D2),
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '「プロモーションコード」画面で amimono を入力してお支払いください（無料になります）',
+                                        textAlign: TextAlign.center,
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.9),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
                               // メインコンテンツ
                               Container(
                                 decoration: BoxDecoration(
@@ -1053,48 +1139,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                               ),
                               const SizedBox(height: 24),
 
-                              // プラン選択（iOSのみ）
-                              if (defaultTargetPlatform == TargetPlatform.iOS)
-                                ..._products
-                                    .map((product) => _buildPlanCard(product))
-                              else
-                                Container(
-                                  padding: const EdgeInsets.all(24),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[100],
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: Colors.grey[300] ?? Colors.grey,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    children: [
-                                      Icon(
-                                        Icons.info_outline,
-                                        size: 48,
-                                        color: Colors.grey[600],
-                                      ),
-                                      const SizedBox(height: 16),
-                                      Text(
-                                        'サブスクリプション機能',
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.grey[700],
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        '現在、サブスクリプション機能はiOSでのみ利用可能です。',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey[600],
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                              // プラン選択（iOS/Android 共通）
+                              ..._products
+                                  .map((product) => _buildPlanCard(product)),
 
                               // 管理ボタン群（iOSのみ）
                               if (defaultTargetPlatform ==

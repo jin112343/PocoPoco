@@ -77,3 +77,6 @@
 -dontwarn com.google.android.play.core.tasks.OnFailureListener
 -dontwarn com.google.android.play.core.tasks.OnSuccessListener
 -dontwarn com.google.android.play.core.tasks.Task
+
+# file_picker関連の警告を抑制
+-dontwarn javax.xml.stream.XMLStreamException

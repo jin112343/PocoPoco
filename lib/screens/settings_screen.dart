@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:in_app_review/in_app_review.dart';
+import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'terms_screen.dart';
 import 'privacy_policy_screen.dart';
@@ -225,9 +226,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   style: const TextStyle(color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
-                const Text(
-                  'v1.0.4',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                Text(
+                  defaultTargetPlatform == TargetPlatform.android ? 'v1.0.6' : 'v1.0.4',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
