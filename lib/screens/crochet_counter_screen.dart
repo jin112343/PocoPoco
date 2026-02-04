@@ -55,6 +55,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   bool _isRemovingRow = false;
   bool _isInitializing = false;
   bool _isSaving = false;
+  bool _isProcessing = false; // 汎用的な非同期処理中フラグ
 
   // サブスクリプション状態のキャッシュ
   SubscriptionProvider? _subscriptionProvider;
@@ -209,6 +210,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
   /// 編み目設定のリセット（最適化版）
   Future<void> _resetStitchSettingsToDefaultOptimized() async {
+    if (_isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
     try {
       _logger.i('編み目設定を基本設定にリセット');
 
@@ -235,15 +242,30 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
       if (mounted) {
         setState(() {}); // 一度だけ更新
-        _showSnackBar('編み目設定を基本に戻しました', Colors.orange);
+        _showDialog('編み目設定を基本に戻しました', Colors.orange);
       }
     } catch (e) {
       _logger.e('編み目設定リセットエラー: $e');
+      if (mounted) {
+        _showDialog('編み目設定のリセットに失敗しました', Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
   /// プロジェクト編み目設定の再読み込み（最適化版）
   Future<void> _reloadProjectCustomStitchesOptimized() async {
+    if (_isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
     try {
       _logger.i('編み目設定再読み込み開始');
 
@@ -280,6 +302,15 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       }
     } catch (e) {
       _logger.e('編み目設定再読み込みエラー: $e');
+      if (mounted) {
+        _showDialog('編み目設定の再読み込みに失敗しました', Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
@@ -348,12 +379,15 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
       // 成功通知
       if (mounted) {
-        _showSnackBar('$rowNumber段目を削除しました', Colors.orange);
+        _showDialog('$rowNumber段目を削除しました', Colors.orange);
       }
 
       _logger.i('段削除完了: $rowNumber段目');
     } catch (e, stackTrace) {
       _logger.e('段削除エラー', error: e, stackTrace: stackTrace);
+      if (mounted) {
+        _showDialog('段の削除に失敗しました', Colors.red);
+      }
     } finally {
       _isRemovingRow = false;
       stopwatch.stop();
@@ -405,9 +439,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
 
     // 遅延初期化
-    if (_defaultStitches == null) {
-      _defaultStitches = StitchSettingsService.getDefaultStitches();
-    }
+    _defaultStitches ??= StitchSettingsService.getDefaultStitches();
     return _defaultStitches!;
   }
 
@@ -469,11 +501,11 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
         setState(() {
           _hasUnsavedChanges = false;
         });
-        _showSnackBar('保存完了', Colors.green);
+        _showDialog('保存完了', Colors.green);
         return true;
       } else {
         if (!isPremium) {
-          _showSnackBar('保存制限に達しました', Colors.red);
+          _showDialog('保存制限に達しました', Colors.red);
         }
         return false;
       }
@@ -488,14 +520,20 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
   }
 
-  /// スナックバー表示のヘルパー
-  void _showSnackBar(String message, Color color) {
+  /// ダイアログ表示のヘルパー
+  void _showDialog(String message, Color color) {
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
           content: Text(message),
-          backgroundColor: color,
-          duration: const Duration(seconds: 2),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
     }
@@ -608,6 +646,34 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     }
   }
 
+  /// リセット確認ダイアログ表示
+  Future<void> _showResetConfirmDialog() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('reset_confirm_title')),
+        content: Text(tr('reset_confirm_message')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(tr('cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.red,
+            ),
+            child: Text(tr('reset')),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      _resetAll();
+    }
+  }
+
   /// リセット処理
   void _resetAll() {
     try {
@@ -696,6 +762,8 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (bool didPop, dynamic result) async {
@@ -709,82 +777,26 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       child: Stack(
         children: [
           Scaffold(
-            backgroundColor: const Color(0xFFFCE4EC),
-            appBar: _buildAppBar(),
+            appBar: _buildAppBar(isDarkMode),
             body: SafeArea(
-              child: Column(
-                children: [
-                  // 編み目履歴
-                  Expanded(
-                    flex: 1,
-                    child: StitchHistorySection(
-                      stitchHistory: _stitchHistory,
-                      currentStitches: _getCurrentStitchesOptimized(),
-                      onRowTap: (rowNumber) {
-                        _showSnackBar('$rowNumber段目に移動しました', const Color(0xFFAD1457));
-                      },
-                      onRowCompleted: (rowNumber) {
-                        // 段完成時の処理
-                      },
-                      onStitchRemoved: (rowNumber) async {
-                        await _removeRowOptimized(rowNumber);
-                      },
-                      currentRow: _getCurrentRow(),
-                      currentStitchCount: _getCurrentStitchCount(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isLandscape = constraints.maxWidth > constraints.maxHeight;
+                  final isTablet = constraints.maxWidth >= 600;
 
-                  // 編み目パターンとコントロール
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        // 最適化されたStitchPatternGrid
-                        StitchPatternGrid(
-                          key: ValueKey('optimized_${_cachedProjectStitchesHash ?? 0}'),
-                          selectedStitch: _selectedStitch,
-                          onStitchSelected: (stitch) {
-                            setState(() {
-                              _selectedStitch = stitch;
-                            });
-                          },
-                          onStitchAdded: _addStitch,
-                          projectStitches: _getCurrentStitchesOptimized(),
-                          onStitchSettingsChanged: () async {
-                            await _reloadProjectCustomStitchesOptimized();
-                          },
-                          onProjectStitchesChanged: (newStitches) async {
-                            await _updateProjectStitchesOptimized(newStitches);
-                          },
-                        ),
-                        const SizedBox(height: 20),
-                        ControlButtons(
-                          onRemoveStitch: _removeLastStitch,
-                          onCompleteRow: _completeRow,
-                          onReset: _resetAll,
-                          canRemoveStitch: _stitchHistory.isNotEmpty,
-                          canCompleteRow: _stitchCount > 0,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // バナー広告
-                  if (!(_subscriptionProvider?.isPremium ?? false) &&
-                      _isBannerAdLoaded &&
-                      _bannerAd != null)
-                    Container(
-                      width: _bannerAd!.size.width.toDouble(),
-                      height: _bannerAd!.size.height.toDouble(),
-                      child: AdWidget(ad: _bannerAd!),
-                    ),
-                ],
+                  if (isLandscape && isTablet) {
+                    // iPad横向き: 左右分割レイアウト
+                    return _buildLandscapeLayout(constraints, isDarkMode);
+                  } else {
+                    // 縦向きまたはiPhone: 縦並びレイアウト
+                    return _buildPortraitLayout();
+                  }
+                },
               ),
             ),
           ),
           // ローディングオーバーレイ
-          if (_isSaving || _isInitializing)
+          if (_isSaving || _isInitializing || _isProcessing || _isRemovingRow)
             Container(
               color: Colors.black.withValues(alpha: 0.5),
               child: Center(
@@ -804,7 +816,13 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                         ),
                         const SizedBox(height: 24),
                         Text(
-                          _isSaving ? '保存中...' : '読み込み中...',
+                          _isSaving
+                              ? '保存中...'
+                              : _isRemovingRow
+                                  ? '削除中...'
+                                  : _isProcessing
+                                      ? '処理中...'
+                                      : '読み込み中...',
                           style: const TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w600,
@@ -822,8 +840,160 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     );
   }
 
+  /// 縦向きレイアウト（従来のレイアウト）
+  Widget _buildPortraitLayout() {
+    return Column(
+      children: [
+        // 編み目履歴
+        Expanded(
+          flex: 1,
+          child: StitchHistorySection(
+            stitchHistory: _stitchHistory,
+            currentStitches: _getCurrentStitchesOptimized(),
+            onRowTap: (rowNumber) {
+              _showDialog('$rowNumber段目に移動しました', const Color(0xFFAD1457));
+            },
+            onRowCompleted: (rowNumber) {
+              // 段完成時の処理
+            },
+            onStitchRemoved: (rowNumber) async {
+              await _removeRowOptimized(rowNumber);
+            },
+            currentRow: _getCurrentRow(),
+            currentStitchCount: _getCurrentStitchCount(),
+          ),
+        ),
+        const SizedBox(height: 10),
+
+        // 編み目パターンとコントロール
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              // 最適化されたStitchPatternGrid
+              StitchPatternGrid(
+                key: ValueKey('optimized_${_cachedProjectStitchesHash ?? 0}'),
+                selectedStitch: _selectedStitch,
+                onStitchSelected: (stitch) {
+                  setState(() {
+                    _selectedStitch = stitch;
+                  });
+                },
+                onStitchAdded: _addStitch,
+                projectStitches: _getCurrentStitchesOptimized(),
+                onStitchSettingsChanged: () async {
+                  await _reloadProjectCustomStitchesOptimized();
+                },
+                onProjectStitchesChanged: (newStitches) async {
+                  await _updateProjectStitchesOptimized(newStitches);
+                },
+              ),
+              const SizedBox(height: 20),
+              ControlButtons(
+                onRemoveStitch: _removeLastStitch,
+                onCompleteRow: _completeRow,
+                onReset: _showResetConfirmDialog,
+                canRemoveStitch: _stitchHistory.isNotEmpty,
+                canCompleteRow: _stitchCount > 0,
+              ),
+            ],
+          ),
+        ),
+
+        // バナー広告
+        if (!(_subscriptionProvider?.isPremium ?? false) &&
+            _isBannerAdLoaded &&
+            _bannerAd != null)
+          SizedBox(
+            width: _bannerAd!.size.width.toDouble(),
+            height: _bannerAd!.size.height.toDouble(),
+            child: AdWidget(ad: _bannerAd!),
+          ),
+      ],
+    );
+  }
+
+  /// 横向きレイアウト（iPad用）
+  Widget _buildLandscapeLayout(BoxConstraints constraints, bool isDarkMode) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 左側: 編み目履歴
+        Expanded(
+          flex: 1,
+          child: StitchHistorySection(
+            stitchHistory: _stitchHistory,
+            currentStitches: _getCurrentStitchesOptimized(),
+            onRowTap: (rowNumber) {
+              _showDialog('$rowNumber段目に移動しました', const Color(0xFFAD1457));
+            },
+            onRowCompleted: (rowNumber) {
+              // 段完成時の処理
+            },
+            onStitchRemoved: (rowNumber) async {
+              await _removeRowOptimized(rowNumber);
+            },
+            currentRow: _getCurrentRow(),
+            currentStitchCount: _getCurrentStitchCount(),
+          ),
+        ),
+        // 右側: 編み目パターンとコントロール
+        Expanded(
+          flex: 1,
+          child: Container(
+            color: isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFFCE4EC),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  // 最適化されたStitchPatternGrid
+                  StitchPatternGrid(
+                    key: ValueKey('optimized_landscape_${_cachedProjectStitchesHash ?? 0}'),
+                    selectedStitch: _selectedStitch,
+                    onStitchSelected: (stitch) {
+                      setState(() {
+                        _selectedStitch = stitch;
+                      });
+                    },
+                    onStitchAdded: _addStitch,
+                    projectStitches: _getCurrentStitchesOptimized(),
+                    onStitchSettingsChanged: () async {
+                      await _reloadProjectCustomStitchesOptimized();
+                    },
+                    onProjectStitchesChanged: (newStitches) async {
+                      await _updateProjectStitchesOptimized(newStitches);
+                    },
+                    isLandscape: true,
+                  ),
+                  const SizedBox(height: 20),
+                  ControlButtons(
+                    onRemoveStitch: _removeLastStitch,
+                    onCompleteRow: _completeRow,
+                    onReset: _showResetConfirmDialog,
+                    canRemoveStitch: _stitchHistory.isNotEmpty,
+                    canCompleteRow: _stitchCount > 0,
+                  ),
+                  const SizedBox(height: 20),
+                  // バナー広告
+                  if (!(_subscriptionProvider?.isPremium ?? false) &&
+                      _isBannerAdLoaded &&
+                      _bannerAd != null)
+                    SizedBox(
+                      width: _bannerAd!.size.width.toDouble(),
+                      height: _bannerAd!.size.height.toDouble(),
+                      child: AdWidget(ad: _bannerAd!),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// AppBarの構築
-  PreferredSizeWidget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar(bool isDarkMode) {
     return AppBar(
       title: GestureDetector(
         onTap: _editProjectTitle,
@@ -835,7 +1005,6 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
           ),
         ),
       ),
-      backgroundColor: const Color(0xFFEC407A),
       centerTitle: true,
       elevation: 0,
       leading: IconButton(
@@ -862,6 +1031,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
   /// プロジェクト編み目設定の最適化された更新
   Future<void> _updateProjectStitchesOptimized(List<dynamic> newStitches) async {
+    if (_isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
     try {
       final newHash = _calculateStitchesHash(newStitches);
 
@@ -889,16 +1064,27 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       }
     } catch (e) {
       _logger.e('プロジェクト編み目設定更新エラー: $e');
+      if (mounted) {
+        _showDialog('編み目設定の更新に失敗しました', Colors.red);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
   /// 戻るボタンの最適化された処理
   Future<void> _handleBackButtonOptimized() async {
     _logger.d('戻るボタン押下');
+    // 非同期処理の前にNavigatorへの参照を保存
+    final navigator = Navigator.of(context);
 
     if (!_hasUnsavedChanges) {
       _logger.d('変更なし、直接戻る');
-      Navigator.of(context).pop();
+      navigator.pop();
       return;
     }
 
@@ -912,13 +1098,17 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       final saveSuccess = await _saveProjectOptimized();
       if (saveSuccess) {
         _showRewardedAdAfterSave();
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-              (route) => false,
-        );
+        if (mounted) {
+          navigator.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const HomeScreen()),
+                (route) => false,
+          );
+        }
       }
     } else if (result == false) {
-      Navigator.of(context).pop();
+      if (mounted) {
+        navigator.pop();
+      }
     }
   }
 

@@ -1,10 +1,14 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'screens/home_screen.dart';
 import 'services/subscription_provider.dart';
+import 'services/theme_provider.dart';
 import 'services/data_migration_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
@@ -13,11 +17,44 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await EasyLocalization.ensureInitialized();
 
-  // 画面の向きを縦表示のみに制限
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+  // iPadの場合は全方向を許可、iPhoneの場合は縦のみ
+  if (Platform.isIOS) {
+    // デバイスの画面サイズでiPadかどうかを判定
+    final data = WidgetsBinding.instance.platformDispatcher.views.first;
+    final size = data.physicalSize / data.devicePixelRatio;
+    final shortestSide = size.shortestSide;
+
+    // iPadの場合（shortest sideが600以上）
+    if (shortestSide >= 600) {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    } else {
+      // iPhoneの場合は縦のみ
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.portraitDown,
+      ]);
+    }
+  } else {
+    // Android等は縦のみ
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
+  }
+
+  try {
+    // Firebaseの初期化
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase initialization failed: $e');
+  }
 
   try {
     // SharedPreferencesの初期化
@@ -47,8 +84,11 @@ void main() async {
       path: 'assets/lang',
       fallbackLocale: const Locale('ja'),
       startLocale: const Locale('ja'),
-      child: ChangeNotifierProvider(
-        create: (_) => SubscriptionProvider(),
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
+          ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ],
         child: const MyApp(),
       ),
     ),
@@ -75,17 +115,89 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: tr('app_title'),
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.pink,
-        useMaterial3: true,
-      ),
-      home: const InitializationScreen(),
-      localizationsDelegates: context.localizationDelegates,
-      supportedLocales: context.supportedLocales,
-      locale: context.locale,
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return MaterialApp(
+          title: tr('app_title'),
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            primarySwatch: Colors.pink,
+            useMaterial3: true,
+            brightness: Brightness.light,
+            scaffoldBackgroundColor: const Color(0xFFFCE4EC),
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Color(0xFFEC407A),
+              foregroundColor: Colors.white,
+            ),
+          ),
+          darkTheme: ThemeData(
+            primarySwatch: Colors.pink,
+            useMaterial3: true,
+            brightness: Brightness.dark,
+            scaffoldBackgroundColor: const Color(0xFF1A1A1A),
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Color(0xFFAD1457),
+              foregroundColor: Colors.white,
+            ),
+            cardTheme: const CardThemeData(
+              color: Color(0xFF2D2D2D),
+            ),
+            listTileTheme: const ListTileThemeData(
+              iconColor: Colors.white70,
+              textColor: Colors.white,
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              labelStyle: const TextStyle(color: Colors.white70),
+              hintStyle: const TextStyle(color: Colors.white54),
+              prefixIconColor: Colors.white70,
+              suffixIconColor: Colors.white70,
+              filled: true,
+              fillColor: Colors.white.withValues(alpha: 0.1),
+              border: const OutlineInputBorder(),
+              enabledBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.white38),
+              ),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFFEC407A), width: 2),
+              ),
+            ),
+            textSelectionTheme: const TextSelectionThemeData(
+              cursorColor: Color(0xFFEC407A),
+              selectionColor: Color(0x40EC407A),
+              selectionHandleColor: Color(0xFFEC407A),
+            ),
+            textTheme: const TextTheme(
+              bodyLarge: TextStyle(color: Colors.white),
+              bodyMedium: TextStyle(color: Colors.white),
+              bodySmall: TextStyle(color: Colors.white70),
+              titleLarge: TextStyle(color: Colors.white),
+              titleMedium: TextStyle(color: Colors.white),
+              titleSmall: TextStyle(color: Colors.white),
+              labelLarge: TextStyle(color: Colors.white),
+              labelMedium: TextStyle(color: Colors.white),
+              labelSmall: TextStyle(color: Colors.white70),
+            ),
+            dialogTheme: const DialogThemeData(
+              backgroundColor: Color(0xFF2D2D2D),
+              titleTextStyle: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+              contentTextStyle: TextStyle(color: Colors.white),
+            ),
+            popupMenuTheme: const PopupMenuThemeData(
+              color: Color(0xFF2D2D2D),
+              textStyle: TextStyle(color: Colors.white),
+            ),
+          ),
+          themeMode: themeProvider.themeMode,
+          home: const InitializationScreen(),
+          localizationsDelegates: context.localizationDelegates,
+          supportedLocales: context.supportedLocales,
+          locale: context.locale,
+        );
+      },
     );
   }
 }
@@ -106,6 +218,10 @@ class _InitializationScreenState extends State<InitializationScreen> {
   }
 
   Future<void> _initialize() async {
+    // 非同期処理の前にcontextへの参照を保存
+    final subscriptionProvider = context.read<SubscriptionProvider>();
+    final navigator = Navigator.of(context);
+
     try {
       // データマイグレーション処理
       final migrationSuccess = await DataMigrationService.migrate();
@@ -115,7 +231,6 @@ class _InitializationScreenState extends State<InitializationScreen> {
       }
 
       // サブスクリプション状態の読み込みを待機
-      final subscriptionProvider = context.read<SubscriptionProvider>();
       await subscriptionProvider.loadStatus();
 
       // ATT許可リクエスト（少し遅延）
@@ -124,7 +239,7 @@ class _InitializationScreenState extends State<InitializationScreen> {
 
       // HomeScreenに遷移
       if (mounted) {
-        Navigator.of(context).pushReplacement(
+        navigator.pushReplacement(
           MaterialPageRoute(
             builder: (context) => const HomeScreen(),
           ),
@@ -133,7 +248,7 @@ class _InitializationScreenState extends State<InitializationScreen> {
     } catch (e) {
       // エラーが発生してもHomeScreenに遷移
       if (mounted) {
-        Navigator.of(context).pushReplacement(
+        navigator.pushReplacement(
           MaterialPageRoute(
             builder: (context) => const HomeScreen(),
           ),
@@ -144,8 +259,10 @@ class _InitializationScreenState extends State<InitializationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFFCE4EC),
+      backgroundColor: isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFFCE4EC),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -158,7 +275,9 @@ class _InitializationScreenState extends State<InitializationScreen> {
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.1),
+                    color: isDarkMode
+                        ? Colors.black.withValues(alpha: 0.3)
+                        : Colors.black.withValues(alpha: 0.1),
                     blurRadius: 10,
                     offset: const Offset(0, 4),
                   ),
@@ -184,7 +303,7 @@ class _InitializationScreenState extends State<InitializationScreen> {
               '読み込み中...',
               style: TextStyle(
                 fontSize: 16,
-                color: Colors.grey.shade600,
+                color: isDarkMode ? Colors.grey[400] : Colors.grey.shade600,
                 fontWeight: FontWeight.w500,
               ),
             ),

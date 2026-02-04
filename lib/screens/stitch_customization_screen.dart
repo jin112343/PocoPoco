@@ -24,10 +24,11 @@ class StitchCustomizationScreen extends StatefulWidget {
 class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   List<dynamic> _stitches = [];
   bool? _wasPremium; // 前回のプレミアム状態を記録
+  bool _isProcessing = false; // 非同期処理中フラグ
 
   // 編み目選択用の状態管理
-  Set<CrochetStitch> _selectedBasicStitches = {};
-  Set<Map<String, String>> _selectedPremiumStitches = {};
+  final Set<CrochetStitch> _selectedBasicStitches = {};
+  final Set<Map<String, String>> _selectedPremiumStitches = {};
 
   @override
   void initState() {
@@ -61,9 +62,33 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     _wasPremium = isPremium;
   }
 
-  void _resetToDefaultStitches() async {
-    try {
+  /// ダイアログ表示のヘルパー
+  void _showDialog(String message) {
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
 
+  void _resetToDefaultStitches() async {
+    if (_isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
       final defaultStitches = StitchSettingsService.getDefaultStitches();
       await StitchSettingsService.saveGlobalStitches(defaultStitches);
 
@@ -71,13 +96,20 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         _stitches = defaultStitches;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('プレミアム解約により基本編み目に戻しました'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      if (mounted) {
+        _showDialog('プレミアム解約により基本編み目に戻しました');
+      }
     } catch (e) {
+      debugPrint('編み目のリセットに失敗: $e');
+      if (mounted) {
+        _showDialog('編み目のリセットに失敗しました');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
     }
   }
 
@@ -93,9 +125,10 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       }
 
       setState(() {
-        // setStateは不要（_stitchesは既に更新済み）
+        // setStateでUIを更新
       });
     } catch (e) {
+      debugPrint('編み目の読み込みに失敗: $e');
       setState(() {
         _stitches = StitchSettingsService.getDefaultStitches();
       });
@@ -286,23 +319,46 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
         title: Text(tr('edit_stitch_buttons')),
         backgroundColor: const Color(0xFFEC407A),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () async {
-            // プロジェクト固有の編み目設定を保存
-            if (widget.onProjectStitchesChanged != null) {
-              try {
+          onPressed: _isProcessing ? null : () async {
+            if (_isProcessing) return;
+
+            setState(() {
+              _isProcessing = true;
+            });
+
+            try {
+              // 非同期処理の前にNavigatorへの参照を保存
+              final navigator = Navigator.of(context);
+
+              // プロジェクト固有の編み目設定を保存
+              if (widget.onProjectStitchesChanged != null) {
                 await widget.onProjectStitchesChanged!(_stitches);
-              } catch (e) {
+              }
+
+              // 変更があったことを通知して戻る
+              if (mounted) {
+                navigator.pop(true);
+              }
+            } catch (e) {
+              debugPrint('編み目設定の保存に失敗: $e');
+              if (mounted) {
+                _showDialog('編み目設定の保存に失敗しました');
+              }
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _isProcessing = false;
+                });
               }
             }
-
-            // 変更があったことを通知して戻る
-            Navigator.of(context).pop(true);
           },
         ),
         actions: [
@@ -346,32 +402,37 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                     margin:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                     child: ListTile(
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Center(
-                          child: stitch.imagePath != null
-                              ? Image.asset(
-                                  stitch.imagePath!,
-                                  width: 24,
-                                  height: 24,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Text(
-                                      _getStitchName(stitch).substring(0, 1),
+                      leading: Builder(
+                        builder: (context) {
+                          final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+                          return Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: isDarkMode ? const Color(0xFF3D3D3D) : Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade300),
+                            ),
+                            child: Center(
+                              child: stitch.imagePath != null
+                                  ? Image.asset(
+                                      stitch.imagePath!,
+                                      width: 24,
+                                      height: 24,
+                                      errorBuilder: (context, error, stackTrace) {
+                                        return Text(
+                                          _getStitchName(stitch).substring(0, 1),
+                                          style: const TextStyle(fontSize: 16),
+                                        );
+                                      },
+                                    )
+                                  : Text(
+                                      _getStitchName(stitch),
                                       style: const TextStyle(fontSize: 16),
-                                    );
-                                  },
-                                )
-                              : Text(
-                                  _getStitchName(stitch),
-                                  style: const TextStyle(fontSize: 16),
-                                ),
-                        ),
+                                    ),
+                            ),
+                          );
+                        },
                       ),
                       title: Text(_getStitchName(stitch)),
                       subtitle: Text(isCustomStitch
@@ -400,29 +461,97 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                 );
               },
               onReorder: (oldIndex, newIndex) async {
+                if (_isProcessing) return;
+
                 setState(() {
+                  _isProcessing = true;
                   if (oldIndex < newIndex) {
                     newIndex -= 1;
                   }
                   final item = _stitches.removeAt(oldIndex);
                   _stitches.insert(newIndex, item);
                 });
-                await _saveGlobalStitches();
-                // 変更は即座に保存するが、画面は閉じない
+
+                try {
+                  await _saveGlobalStitches();
+                } catch (e) {
+                  debugPrint('並び替え保存エラー: $e');
+                  if (mounted) {
+                    _showDialog('並び替えの保存に失敗しました');
+                  }
+                } finally {
+                  if (mounted) {
+                    setState(() {
+                      _isProcessing = false;
+                    });
+                  }
+                }
               },
             ),
           ),
         ],
       ),
+        ),
+        // ローディングオーバーレイ
+        if (_isProcessing)
+          Container(
+            color: Colors.black.withValues(alpha: 0.5),
+            child: Center(
+              child: Card(
+                elevation: 8,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        color: Color(0xFFEC407A),
+                        strokeWidth: 4,
+                      ),
+                      SizedBox(height: 24),
+                      Text(
+                        '処理中...',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF333333),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
   void _removeStitch(int index) async {
+    if (_isProcessing) return;
+
     setState(() {
+      _isProcessing = true;
       _stitches.removeAt(index);
     });
-    await _saveGlobalStitches();
-    // 変更は即座に保存するが、画面は閉じない
+
+    try {
+      await _saveGlobalStitches();
+    } catch (e) {
+      debugPrint('削除保存エラー: $e');
+      if (mounted) {
+        _showDialog('削除の保存に失敗しました');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
   }
 
   Future<void> _saveGlobalStitches() async {
@@ -434,6 +563,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
           try {
             await widget.onProjectStitchesChanged!(_stitches);
           } catch (e) {
+            debugPrint('プロジェクト編み目設定の保存に失敗: $e');
           }
         }
       } else {
@@ -449,6 +579,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       // 少し待ってから再度確認
       await Future.delayed(const Duration(milliseconds: 200));
     } catch (e) {
+      debugPrint('編み目設定の保存に失敗: $e');
     }
   }
 
@@ -468,24 +599,44 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
     showDialog(
       context: context,
+      barrierDismissible: false, // ダイアログの外側をタップしても閉じないようにする
       builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(tr('edit_stitch_buttons')),
-          content: SizedBox(
-            width: MediaQuery.of(context).size.width * 0.9,
-            height: MediaQuery.of(context).size.height * 0.7,
-            child: Column(
-              children: [
-                // 基本編み目セクション
-                if (availableBasicStitches.isNotEmpty) ...[
-                  Text(
-                    '基本編み目',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue,
+        builder: (context, setDialogState) {
+          final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+          final screenWidth = MediaQuery.of(context).size.width;
+          final screenHeight = MediaQuery.of(context).size.height;
+          final isTablet = screenWidth >= 600;
+
+          // iPadなどのタブレットでは、より適切なサイズとカラム数を設定
+          final dialogWidth = isTablet
+              ? (screenWidth * 0.7).clamp(400.0, 800.0)
+              : screenWidth * 0.9;
+          final dialogHeight = isTablet
+              ? (screenHeight * 0.6).clamp(400.0, 700.0)
+              : screenHeight * 0.7;
+          final crossAxisCount = isTablet ? 5 : 3;
+          final childAspectRatio = isTablet ? 0.85 : 0.9;
+          final fontSize = isTablet ? 11.0 : 9.0;
+          final imageSize = isTablet ? 50.0 : 40.0;
+
+          return AlertDialog(
+            backgroundColor: isDarkMode ? const Color(0xFF2D2D2D) : null,
+            title: Text(tr('edit_stitch_buttons')),
+            content: SizedBox(
+              width: dialogWidth,
+              height: dialogHeight,
+              child: Column(
+                children: [
+                  // 基本編み目セクション
+                  if (availableBasicStitches.isNotEmpty) ...[
+                    Text(
+                      '基本編み目',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDarkMode ? Colors.blue[300] : Colors.blue,
+                      ),
                     ),
-                  ),
                   const SizedBox(height: 8),
                   Expanded(
                     flex: 1,
@@ -495,11 +646,11 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                       radius: const Radius.circular(3),
                       child: GridView.builder(
                         gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
+                            SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
                           crossAxisSpacing: 8,
                           mainAxisSpacing: 8,
-                          childAspectRatio: 1,
+                          childAspectRatio: childAspectRatio,
                         ),
                         itemCount: availableBasicStitches.length,
                         itemBuilder: (context, index) {
@@ -518,14 +669,16 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                           },
                           child: Card(
                             elevation: 2,
-                            color: isSelected ? Colors.blue.shade50 : null,
+                            color: isSelected
+                                ? (isDarkMode ? Colors.blue.shade900 : Colors.blue.shade50)
+                                : (isDarkMode ? const Color(0xFF3D3D3D) : null),
                             child: Stack(
                               children: [
                                 Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Container(
-                                      height: 40,
+                                      height: imageSize,
                                       padding: const EdgeInsets.all(4),
                                       child: stitch.imagePath != null
                                           ? Image.asset(
@@ -536,7 +689,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                                   child: Text(
                                                     _getStitchName(stitch).substring(0, 1),
                                                     style: TextStyle(
-                                                      fontSize: 16,
+                                                      fontSize: isTablet ? 18 : 16,
                                                       fontWeight: FontWeight.bold,
                                                       color: stitch.color,
                                                     ),
@@ -549,7 +702,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                                 _getStitchName(stitch)
                                                     .substring(0, 1),
                                                 style: TextStyle(
-                                                  fontSize: 16,
+                                                  fontSize: isTablet ? 18 : 16,
                                                   fontWeight: FontWeight.bold,
                                                   color: stitch.color,
                                                 ),
@@ -560,8 +713,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                       child: Text(
                                         _getStitchName(stitch),
-                                        style: const TextStyle(
-                                          fontSize: 9,
+                                        style: TextStyle(
+                                          fontSize: fontSize,
                                           fontWeight: FontWeight.bold,
                                         ),
                                         textAlign: TextAlign.center,
@@ -605,7 +758,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.pink,
+                      color: isDarkMode ? Colors.pink[300] : Colors.pink,
                     ),
                   ),
                   const SizedBox(height: 8),
@@ -617,11 +770,11 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                       radius: const Radius.circular(3),
                       child: GridView.builder(
                         gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
+                            SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
                           crossAxisSpacing: 8,
                           mainAxisSpacing: 8,
-                          childAspectRatio: 1,
+                          childAspectRatio: childAspectRatio,
                         ),
                         itemCount: availablePremiumStitches.length,
                         itemBuilder: (context, index) {
@@ -640,14 +793,16 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                           },
                           child: Card(
                             elevation: 2,
-                            color: isSelected ? Colors.pink.shade50 : null,
+                            color: isSelected
+                                ? (isDarkMode ? Colors.pink.shade900 : Colors.pink.shade50)
+                                : (isDarkMode ? const Color(0xFF3D3D3D) : null),
                             child: Stack(
                               children: [
                                 Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
                                     Container(
-                                      height: 40,
+                                      height: imageSize,
                                       padding: const EdgeInsets.all(4),
                                       child: Image.asset(
                                         stitch['image']!,
@@ -656,8 +811,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                           return Center(
                                             child: Text(
                                               _getStitchName(stitch).substring(0, 1),
-                                              style: const TextStyle(
-                                                fontSize: 16,
+                                              style: TextStyle(
+                                                fontSize: isTablet ? 18 : 16,
                                                 fontWeight: FontWeight.bold,
                                               ),
                                             ),
@@ -669,8 +824,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                                       child: Text(
                                         _getStitchName(stitch),
-                                        style: const TextStyle(
-                                          fontSize: 9,
+                                        style: TextStyle(
+                                          fontSize: fontSize,
                                           fontWeight: FontWeight.bold,
                                         ),
                                         textAlign: TextAlign.center,
@@ -738,7 +893,8 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                   '追加 (${_selectedBasicStitches.length + _selectedPremiumStitches.length})'),
             ),
           ],
-        ),
+        );
+        },
       ),
     );
   }
@@ -746,33 +902,47 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   void _addSelectedStitches() async {
     // 基本編み目の制限チェック
     final currentBasicStitches =
-        _stitches.where((s) => s is CrochetStitch).length;
+        _stitches.whereType<CrochetStitch>().length;
     final newBasicStitches = _selectedBasicStitches.length;
     if (currentBasicStitches + newBasicStitches > 6) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('基本編み目は6つまでしか追加できません'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      _showDialog('基本編み目は6つまでしか追加できません');
       return;
     }
 
-    // 選択された編み目を追加
-    for (var stitch in _selectedBasicStitches) {
-      _stitches.add(stitch);
-    }
+    if (_isProcessing) return;
 
-    // プレミアム編み目をカスタム編み目として追加
-    for (var stitchData in _selectedPremiumStitches) {
-      final customStitch = CustomStitch(
-        nameJa: stitchData['nameJa']!,
-        nameEn: stitchData['nameEn']!,
-        imagePath: stitchData['image'],
-      );
-      _stitches.add(customStitch);
-    }
+    setState(() {
+      _isProcessing = true;
+    });
 
-    await _saveGlobalStitches();
+    try {
+      // 選択された編み目を追加
+      for (var stitch in _selectedBasicStitches) {
+        _stitches.add(stitch);
+      }
+
+      // プレミアム編み目をカスタム編み目として追加
+      for (var stitchData in _selectedPremiumStitches) {
+        final customStitch = CustomStitch(
+          nameJa: stitchData['nameJa']!,
+          nameEn: stitchData['nameEn']!,
+          imagePath: stitchData['image'],
+        );
+        _stitches.add(customStitch);
+      }
+
+      await _saveGlobalStitches();
+    } catch (e) {
+      debugPrint('編み目追加エラー: $e');
+      if (mounted) {
+        _showDialog('編み目の追加に失敗しました');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
   }
 }

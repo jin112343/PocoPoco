@@ -223,6 +223,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     // build時に最新の編み目が右端に表示されるよう自動スクロール
     if (widget.stitchHistory.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -246,9 +248,9 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     }
 
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
+      decoration: BoxDecoration(
+        color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
+        borderRadius: const BorderRadius.only(
           topLeft: Radius.circular(20),
           topRight: Radius.circular(20),
         ),
@@ -260,20 +262,20 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                const Text(
+                Text(
                   '編み目履歴',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
-                    color: Colors.black87,
+                    color: isDarkMode ? Colors.white : Colors.black87,
                   ),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   '(全${widget.stitchHistory.length}目)',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
-                    color: Colors.grey,
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey,
                   ),
                 ),
                 const Spacer(),
@@ -281,37 +283,37 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                     widget.currentStitchCount != null)
                   Text(
                     '${widget.currentRow}段目 ${widget.currentStitchCount}目',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
-                      color: Colors.grey,
+                      color: isDarkMode ? Colors.grey[400] : Colors.grey,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 if (widget.stitchHistory.isNotEmpty)
-                  const Icon(
+                  Icon(
                     Icons.swipe,
                     size: 18,
-                    color: Colors.grey,
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey,
                   ),
               ],
             ),
           ),
           Expanded(
             child: widget.stitchHistory.isEmpty
-                ? const Center(
+                ? Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.timeline,
                           size: 64,
-                          color: Color(0xFFE0E0E0),
+                          color: isDarkMode ? Colors.grey[600] : const Color(0xFFE0E0E0),
                         ),
-                        SizedBox(height: 20),
+                        const SizedBox(height: 20),
                         Text(
                           '編み目の履歴が表示されます\nタップで編み目を追加してください',
                           style: TextStyle(
-                            color: Colors.grey,
+                            color: isDarkMode ? Colors.grey[400] : Colors.grey,
                             fontSize: 18,
                           ),
                           textAlign: TextAlign.center,
@@ -336,6 +338,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   }
 
   List<Widget> _buildHistoryItems() {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     final groupedHistory = <int, List<Map<String, dynamic>>>{};
 
     // 段ごとにグループ化
@@ -421,15 +424,15 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF8BBD9),
+                      color: isDarkMode ? const Color(0xFFAD1457) : const Color(0xFFF8BBD9),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
                       '$row段',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFFAD1457),
+                        color: isDarkMode ? Colors.white : const Color(0xFFAD1457),
                       ),
                     ),
                   ),
@@ -470,7 +473,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                                       : 48,
                                   height: 48,
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
+                                    color: isDarkMode ? const Color(0xFF3D3D3D) : Colors.white,
                                     borderRadius: (stitchObj is CrochetStitch ||
                                                 stitchObj is CustomStitch) &&
                                             stitchObj.isOval
@@ -485,11 +488,20 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                                     child: (stitchObj is CrochetStitch ||
                                                 stitchObj is CustomStitch) &&
                                             stitchObj.imagePath != null
-                                        ? Image.asset(
-                                            stitchObj.imagePath!,
-                                            width: 32,
-                                            height: 32,
-                                            fit: BoxFit.contain,
+                                        ? Container(
+                                            width: 36,
+                                            height: 36,
+                                            decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.circular(4),
+                                            ),
+                                            padding: const EdgeInsets.all(2),
+                                            child: Image.asset(
+                                              stitchObj.imagePath!,
+                                              width: 32,
+                                              height: 32,
+                                              fit: BoxFit.contain,
+                                            ),
                                           )
                                         : Text(
                                             _getStitchName(stitchObj)
@@ -505,9 +517,9 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                                 const SizedBox(height: 4),
                                 Text(
                                   '$position',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 14,
-                                    color: Colors.grey,
+                                    color: isDarkMode ? Colors.grey[400] : Colors.grey,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -524,25 +536,25 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.1),
+                      color: isDarkMode ? Colors.grey.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                           color: Colors.grey.withValues(alpha: 0.3), width: 1),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.add_circle_outline,
                           size: 24,
-                          color: Colors.grey,
+                          color: isDarkMode ? Colors.grey[400] : Colors.grey,
                         ),
-                        SizedBox(width: 8),
+                        const SizedBox(width: 8),
                         Text(
                           '編み目を追加してください',
                           style: TextStyle(
                             fontSize: 16,
-                            color: Colors.grey,
+                            color: isDarkMode ? Colors.grey[400] : Colors.grey,
                             fontStyle: FontStyle.italic,
                           ),
                         ),

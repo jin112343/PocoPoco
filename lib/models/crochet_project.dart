@@ -12,6 +12,7 @@ class CrochetProject {
   final String iconName;
   final String iconColor;
   final String backgroundColor;
+  final String? iconImagePath; // カスタム写真アイコンのパス
   final List<dynamic> customStitches; // プロジェクト固有の編み目設定
 
   CrochetProject({
@@ -25,6 +26,7 @@ class CrochetProject {
     this.iconName = 'work',
     this.iconColor = '0xFF000000',
     this.backgroundColor = '0xFFFFFFFF',
+    this.iconImagePath,
     this.customStitches = const [], // デフォルトは空
   });
 
@@ -52,6 +54,7 @@ class CrochetProject {
       'iconName': iconName,
       'iconColor': iconColor,
       'backgroundColor': backgroundColor,
+      'iconImagePath': iconImagePath,
       'customStitches': customStitches
           .map((stitch) {
             try {
@@ -145,6 +148,7 @@ class CrochetProject {
       iconName: json['iconName'] ?? 'work',
       iconColor: json['iconColor'] ?? '0xFF000000',
       backgroundColor: json['backgroundColor'] ?? '0xFFFFFFFF',
+      iconImagePath: json['iconImagePath'],
       customStitches: (json['customStitches'] as List? ?? []).map((stitchJson) {
         final stitchData = Map<String, dynamic>.from(stitchJson);
         if (stitchData['type'] == 'enum') {
@@ -178,6 +182,8 @@ class CrochetProject {
     String? iconName,
     String? iconColor,
     String? backgroundColor,
+    String? iconImagePath,
+    bool clearIconImagePath = false,
     List<dynamic>? customStitches,
   }) {
     return CrochetProject(
@@ -191,6 +197,7 @@ class CrochetProject {
       iconName: iconName ?? this.iconName,
       iconColor: iconColor ?? this.iconColor,
       backgroundColor: backgroundColor ?? this.backgroundColor,
+      iconImagePath: clearIconImagePath ? null : (iconImagePath ?? this.iconImagePath),
       customStitches: customStitches ?? this.customStitches,
     );
   }

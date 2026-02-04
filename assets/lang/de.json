@@ -39,5 +39,9 @@
   "watch_ad_reset_title": "Video-Werbung ansehen?",
   "watch_ad_reset_message": "Schauen Sie sich eine Video-Werbung an, um den Zähler zurückzusetzen.",
   "watch_ad": "Werbung ansehen",
-  "no_thanks": "Nein, danke"
+  "no_thanks": "Nein, danke",
+  "dark_mode": "Dunkelmodus",
+  "theme_system": "Systemeinstellung",
+  "theme_light": "Hell",
+  "theme_dark": "Dunkel"
 } 

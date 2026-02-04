@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:logger/logger.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 import '../models/crochet_project.dart';
 import '../services/storage_service.dart';
 import 'crochet_counter_screen.dart';
@@ -9,6 +12,7 @@ import 'upgrade_screen.dart';
 import '../services/subscription_provider.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
+import '../services/pdf_export_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,7 +26,27 @@ class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storageService = StorageService();
   List<CrochetProject> _projects = [];
   bool _isLoading = true;
+  bool _isProcessing = false; // 非同期処理中フラグ
   bool _hasRequestedTracking = false;
+
+  /// ダイアログ表示のヘルパー
+  void _showDialog(String message) {
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -53,12 +77,9 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('プロジェクトの読み込みに失敗しました: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        _showDialog('プロジェクトの読み込みに失敗しました: $e');
+      }
     }
   }
 
@@ -173,6 +194,14 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
+              leading: const Icon(Icons.picture_as_pdf),
+              title: const Text('PDFで共有'),
+              onTap: () async {
+                Navigator.of(context).pop();
+                await _exportProjectToPdf(project);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.delete),
               title: const Text('リストの削除'),
               onTap: () {
@@ -195,10 +224,11 @@ class _HomeScreenState extends State<HomeScreen> {
   void _editProjectTitle(CrochetProject project) {
     final TextEditingController controller =
         TextEditingController(text: project.title);
+    final subscriptionProvider = context.read<SubscriptionProvider>();
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('編みもの名を編集'),
         content: TextField(
           controller: controller,
@@ -210,14 +240,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('キャンセル'),
           ),
           TextButton(
             onPressed: () async {
               final newTitle = controller.text.trim();
               if (newTitle.isNotEmpty && newTitle != project.title) {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
 
                 // プロジェクトを更新
                 final updatedProject = project.copyWith(
@@ -225,25 +255,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   updatedAt: DateTime.now(),
                 );
 
-                final isPremium =
-                    context.read<SubscriptionProvider>().isPremium;
+                final isPremium = subscriptionProvider.isPremium;
                 final success = await _storageService
                     .saveProject(updatedProject, isPremium: isPremium);
                 if (success) {
                   _loadProjects();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('編みもの名を更新しました'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+                  if (mounted) {
+                    _showDialog('編みもの名を更新しました');
+                  }
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('編みもの名の更新に失敗しました'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    _showDialog('編みもの名の更新に失敗しました');
+                  }
                 }
               }
             },
@@ -331,11 +354,14 @@ class _HomeScreenState extends State<HomeScreen> {
     String selectedIconName = project.iconName;
     String selectedIconColor = project.iconColor;
     String selectedBackgroundColor = project.backgroundColor;
+    String? selectedImagePath = project.iconImagePath;
+
+    final subscriptionProvider = context.read<SubscriptionProvider>();
 
     showDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setState) => AlertDialog(
           title: const Text('アイコンと色を編集'),
           content: SingleChildScrollView(
             child: SizedBox(
@@ -357,14 +383,26 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: 50,
                           height: 50,
                           decoration: BoxDecoration(
-                            color: _getBackgroundColor(selectedBackgroundColor),
+                            color: selectedImagePath != null
+                                ? Colors.transparent
+                                : _getBackgroundColor(selectedBackgroundColor),
                             borderRadius: BorderRadius.circular(25),
                           ),
-                          child: Icon(
-                            _getIconData(selectedIconName),
-                            color: _getIconColor(selectedIconColor),
-                            size: 24,
-                          ),
+                          child: selectedImagePath != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(25),
+                                  child: Image.file(
+                                    File(selectedImagePath!),
+                                    width: 50,
+                                    height: 50,
+                                    fit: BoxFit.cover,
+                                  ),
+                                )
+                              : Icon(
+                                  _getIconData(selectedIconName),
+                                  color: _getIconColor(selectedIconColor),
+                                  size: 24,
+                                ),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -379,6 +417,134 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
+                  ),
+                  const SizedBox(height: 16),
+                  // 写真選択セクション
+                  const Text('写真から選ぶ',
+                      style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // カメラから撮影
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final ImagePicker picker = ImagePicker();
+                            final XFile? image = await picker.pickImage(
+                              source: ImageSource.camera,
+                              maxWidth: 512,
+                              maxHeight: 512,
+                              imageQuality: 85,
+                            );
+                            if (image != null) {
+                              // アプリのドキュメントディレクトリに保存
+                              final directory = await getApplicationDocumentsDirectory();
+                              final fileName = 'icon_${project.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                              final savedPath = '${directory.path}/$fileName';
+                              await File(image.path).copy(savedPath);
+                              setState(() {
+                                selectedImagePath = savedPath;
+                              });
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.camera_alt, size: 32, color: Colors.grey.shade600),
+                                const SizedBox(height: 4),
+                                const Text('カメラ', style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // アルバムから選択
+                      Expanded(
+                        child: InkWell(
+                          onTap: () async {
+                            final ImagePicker picker = ImagePicker();
+                            final XFile? image = await picker.pickImage(
+                              source: ImageSource.gallery,
+                              maxWidth: 512,
+                              maxHeight: 512,
+                              imageQuality: 85,
+                            );
+                            if (image != null) {
+                              // アプリのドキュメントディレクトリに保存
+                              final directory = await getApplicationDocumentsDirectory();
+                              final fileName = 'icon_${project.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+                              final savedPath = '${directory.path}/$fileName';
+                              await File(image.path).copy(savedPath);
+                              setState(() {
+                                selectedImagePath = savedPath;
+                              });
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade100,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(Icons.photo_library, size: 32, color: Colors.grey.shade600),
+                                const SizedBox(height: 4),
+                                const Text('アルバム', style: TextStyle(fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      // 写真をクリア
+                      Expanded(
+                        child: InkWell(
+                          onTap: selectedImagePath != null ? () {
+                            setState(() {
+                              selectedImagePath = null;
+                            });
+                          } : null,
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: selectedImagePath != null
+                                  ? Colors.red.shade50
+                                  : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Column(
+                              children: [
+                                Icon(
+                                  Icons.clear,
+                                  size: 32,
+                                  color: selectedImagePath != null
+                                      ? Colors.red
+                                      : Colors.grey.shade400,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'クリア',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: selectedImagePath != null
+                                        ? Colors.red
+                                        : Colors.grey.shade400,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(height: 16),
                   // アイコン選択
@@ -517,40 +683,35 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () => Navigator.of(dialogContext).pop(),
               child: const Text('キャンセル'),
             ),
             TextButton(
               onPressed: () async {
-                Navigator.of(context).pop();
+                Navigator.of(dialogContext).pop();
 
                 // プロジェクトを更新
                 final updatedProject = project.copyWith(
                   iconName: selectedIconName,
                   iconColor: selectedIconColor,
                   backgroundColor: selectedBackgroundColor,
+                  iconImagePath: selectedImagePath,
+                  clearIconImagePath: selectedImagePath == null,
                   updatedAt: DateTime.now(),
                 );
 
-                final isPremium =
-                    context.read<SubscriptionProvider>().isPremium;
+                final isPremium = subscriptionProvider.isPremium;
                 final success = await _storageService
                     .saveProject(updatedProject, isPremium: isPremium);
                 if (success) {
                   _loadProjects();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('アイコンと色を更新しました'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+                  if (mounted) {
+                    _showDialog('アイコンと色を更新しました');
+                  }
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('アイコンと色の更新に失敗しました'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted) {
+                    _showDialog('アイコンと色の更新に失敗しました');
+                  }
                 }
               },
               child: const Text('保存'),
@@ -614,36 +775,71 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _exportProjectToPdf(CrochetProject project) async {
+    if (_isProcessing) return;
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      await PdfExportService.exportAndShare(project, context);
+    } catch (e) {
+      logger.e('PDF出力エラー: $e');
+      if (mounted) {
+        _showDialog('PDF出力に失敗しました: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
   void _deleteProject(CrochetProject project) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('編みものを削除'),
         content: Text('「${project.title}」を削除しますか？\nこの操作は取り消せません。'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('キャンセル'),
           ),
           TextButton(
             onPressed: () async {
-              Navigator.of(context).pop();
-              final success = await _storageService.deleteProject(project.id);
-              if (success) {
-                _loadProjects();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('編みものを削除しました'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('編みものの削除に失敗しました'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+              Navigator.of(dialogContext).pop();
+
+              setState(() {
+                _isProcessing = true;
+              });
+
+              try {
+                final success = await _storageService.deleteProject(project.id);
+                if (success) {
+                  _loadProjects();
+                  if (mounted) {
+                    _showDialog('編みものを削除しました');
+                  }
+                } else {
+                  if (mounted) {
+                    _showDialog('編みものの削除に失敗しました');
+                  }
+                }
+              } catch (e) {
+                logger.e('削除エラー: $e');
+                if (mounted) {
+                  _showDialog('編みものの削除に失敗しました');
+                }
+              } finally {
+                if (mounted) {
+                  setState(() {
+                    _isProcessing = false;
+                  });
+                }
               }
             },
             child: const Text('削除', style: TextStyle(color: Colors.red)),
@@ -664,9 +860,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     logger.d('HomeScreen.build: ビルド開始 - _isLoading: $_isLoading, projectsCount: ${_projects.length}, isPremium: ${context.read<SubscriptionProvider>().isPremium}');
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFFCE4EC),
+    return Stack(
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Text(
           tr('app_title'),
@@ -675,7 +873,6 @@ class _HomeScreenState extends State<HomeScreen> {
             color: Colors.white,
           ),
         ),
-        backgroundColor: const Color(0xFFEC407A),
         centerTitle: true,
         elevation: 0,
         actions: [
@@ -705,7 +902,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Icon(
                         Icons.folder_open,
                         size: 80,
-                        color: Colors.grey.shade400,
+                        color: isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400,
                       ),
                       const SizedBox(height: 24),
                       Text(
@@ -713,7 +910,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.grey.shade600,
+                          color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -721,7 +918,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         tr('create_new_project'),
                         style: TextStyle(
                           fontSize: 16,
-                          color: Colors.grey.shade500,
+                          color: isDarkMode ? Colors.grey.shade500 : Colors.grey.shade500,
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -776,28 +973,40 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         },
                         onDismissed: (direction) async {
-                          final success =
-                              await _storageService.deleteProject(project.id);
-                          if (success) {
-                            _loadProjects();
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('編みものを削除しました'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('編みものの削除に失敗しました'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
+                          setState(() {
+                            _isProcessing = true;
+                          });
+
+                          try {
+                            final success =
+                                await _storageService.deleteProject(project.id);
+                            if (success) {
+                              _loadProjects();
+                              if (mounted) {
+                                _showDialog('編みものを削除しました');
+                              }
+                            } else {
+                              if (mounted) {
+                                _showDialog('編みものの削除に失敗しました');
+                              }
+                            }
+                          } catch (e) {
+                            logger.e('削除エラー: $e');
+                            if (mounted) {
+                              _showDialog('編みものの削除に失敗しました');
+                            }
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                _isProcessing = false;
+                              });
+                            }
                           }
                         },
                         child: Card(
                           margin: const EdgeInsets.only(bottom: 12),
                           elevation: 2,
+                          color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
@@ -807,21 +1016,40 @@ class _HomeScreenState extends State<HomeScreen> {
                               width: 50,
                               height: 50,
                               decoration: BoxDecoration(
-                                color: _getBackgroundColor(
-                                    project.backgroundColor),
+                                color: project.iconImagePath != null
+                                    ? Colors.transparent
+                                    : _getBackgroundColor(project.backgroundColor),
                                 borderRadius: BorderRadius.circular(25),
                               ),
-                              child: Icon(
-                                _getIconData(project.iconName),
-                                color: _getIconColor(project.iconColor),
-                                size: 24,
-                              ),
+                              child: project.iconImagePath != null
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(25),
+                                      child: Image.file(
+                                        File(project.iconImagePath!),
+                                        width: 50,
+                                        height: 50,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return Icon(
+                                            _getIconData(project.iconName),
+                                            color: _getIconColor(project.iconColor),
+                                            size: 24,
+                                          );
+                                        },
+                                      ),
+                                    )
+                                  : Icon(
+                                      _getIconData(project.iconName),
+                                      color: _getIconColor(project.iconColor),
+                                      size: 24,
+                                    ),
                             ),
                             title: Text(
                               project.title,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
+                                color: isDarkMode ? Colors.white : Colors.black87,
                               ),
                             ),
                             subtitle: Column(
@@ -832,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   '作成日: ${_formatDate(project.createdAt)} ${_formatTime(project.createdAt)}',
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: Colors.grey.shade600,
+                                    color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
                                   ),
                                 ),
                                 if (project.updatedAt != null) ...[
@@ -841,7 +1069,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     '更新日: ${_formatDate(project.updatedAt!)} ${_formatTime(project.updatedAt!)}',
                                     style: TextStyle(
                                       fontSize: 14,
-                                      color: Colors.grey.shade600,
+                                      color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
                                     ),
                                   ),
                                 ],
@@ -850,7 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   '${project.currentRow}段目 ${project.currentStitchCount}目',
                                   style: TextStyle(
                                     fontSize: 14,
-                                    color: Colors.grey.shade700,
+                                    color: isDarkMode ? Colors.grey.shade300 : Colors.grey.shade700,
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
@@ -863,19 +1091,23 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _editProject(project);
                                 }
                               },
-                              itemBuilder: (context) => [
-                                const PopupMenuItem(
-                                  value: 'delete',
-                                  child: Row(
-                                    children: [
-                                      Icon(Icons.edit, color: Colors.black),
-                                      SizedBox(width: 8),
-                                      Text('編集',
-                                          style: TextStyle(color: Colors.black)),
-                                    ],
+                              itemBuilder: (context) {
+                                final isDark = Theme.of(context).brightness == Brightness.dark;
+                                final iconColor = isDark ? Colors.white : Colors.black;
+                                return [
+                                  PopupMenuItem(
+                                    value: 'delete',
+                                    child: Row(
+                                      children: [
+                                        Icon(Icons.edit, color: iconColor),
+                                        const SizedBox(width: 8),
+                                        Text('編集',
+                                            style: TextStyle(color: iconColor)),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ];
+                              },
                             ),
                             onTap: () => _openProject(project),
                           ),
@@ -889,6 +1121,42 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: const Color(0xFFEC407A),
         child: const Icon(Icons.add, color: Colors.white),
       ),
+        ),
+        // ローディングオーバーレイ
+        if (_isProcessing)
+          Container(
+            color: Colors.black.withValues(alpha: 0.5),
+            child: Center(
+              child: Card(
+                elevation: 8,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        color: Color(0xFFEC407A),
+                        strokeWidth: 4,
+                      ),
+                      SizedBox(height: 24),
+                      Text(
+                        '処理中...',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF333333),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
