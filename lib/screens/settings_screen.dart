@@ -227,7 +227,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  defaultTargetPlatform == TargetPlatform.android ? 'v1.0.6' : 'v1.0.4',
+                  defaultTargetPlatform == TargetPlatform.android ? 'v1.0.7' : 'v1.0.4',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],

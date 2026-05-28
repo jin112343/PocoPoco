@@ -41,7 +41,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     // Android 用のID
     return [
       'yearly_sub', // 年間サブスクリプション（Android）
-      'monthly-sub', // 月額サブスクリプション（Android）
+      'monthly_sub', // 月額サブスクリプション（Android）
     ];
   }
 
