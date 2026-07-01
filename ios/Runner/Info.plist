@@ -28,6 +28,8 @@
 	<string>ca-app-pub-1187210314934709~9706131839</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>プロジェクトのアイコンとして写真を撮影するために、カメラへのアクセスが必要です。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>編み物パターンや作品の画像をインポート・エクスポートするために、フォトライブラリへのアクセスが必要です。</string>
 	<key>NSUserTrackingUsageDescription</key>

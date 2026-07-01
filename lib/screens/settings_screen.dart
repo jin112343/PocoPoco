@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:in_app_review/in_app_review.dart';
-import 'package:flutter/foundation.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'terms_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'upgrade_screen.dart';
+import 'feedback_dialog.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
+import '../services/theme_provider.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../models/crochet_project.dart';
 
@@ -25,32 +25,87 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  void _launchMail(BuildContext context) async {
-    final Uri emailLaunchUri = Uri.parse(
-        'mailto:mizoijin.0201@gmail.com?subject=${Uri.encodeComponent('【PocoPoco】ご意見・お問い合わせ')}&body=${Uri.encodeComponent('ご意見・お問い合わせ内容をご記入ください。\n\n---\n')}');
-
-    try {
-      if (await launchUrl(emailLaunchUri,
-          mode: LaunchMode.externalApplication)) {
-        // 成功
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(tr('contact_error'))),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(tr('contact_error'))),
+  /// ダイアログ表示のヘルパー
+  void _showDialog(String message) {
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
       );
     }
   }
 
+  void _showFeedbackDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => const FeedbackDialog(),
+    );
+  }
+
+  void _showThemeModeDialog(BuildContext context, ThemeProvider themeProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('dark_mode')),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            RadioListTile<ThemeModeSetting>(
+              title: Text(tr('theme_system')),
+              value: ThemeModeSetting.system,
+              groupValue: themeProvider.themeModeSetting,
+              onChanged: (value) {
+                if (value != null) {
+                  themeProvider.setThemeMode(value);
+                  Navigator.pop(context);
+                }
+              },
+            ),
+            RadioListTile<ThemeModeSetting>(
+              title: Text(tr('theme_light')),
+              value: ThemeModeSetting.light,
+              groupValue: themeProvider.themeModeSetting,
+              onChanged: (value) {
+                if (value != null) {
+                  themeProvider.setThemeMode(value);
+                  Navigator.pop(context);
+                }
+              },
+            ),
+            RadioListTile<ThemeModeSetting>(
+              title: Text(tr('theme_dark')),
+              value: ThemeModeSetting.dark,
+              groupValue: themeProvider.themeModeSetting,
+              onChanged: (value) {
+                if (value != null) {
+                  themeProvider.setThemeMode(value);
+                  Navigator.pop(context);
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('設定'),
-        backgroundColor: const Color(0xFFEC407A),
+        backgroundColor: isDarkMode ? const Color(0xFFAD1457) : const Color(0xFFEC407A),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -136,7 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           ),
           Card(
-            color: Colors.white,
+            color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
             elevation: 2,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -161,32 +216,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         children: [
                           Text(
                             tr('premium_plan'),
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.pink),
+                                color: isDarkMode ? const Color(0xFFEC407A) : Colors.pink),
                           ),
                           const SizedBox(height: 6),
                           Text(tr('premium_features'),
-                              style: const TextStyle(fontSize: 15)),
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: isDarkMode ? Colors.white : Colors.black87,
+                              )),
                           const SizedBox(height: 6),
                           Text(tr('premium_price'),
-                              style: const TextStyle(
-                                  fontSize: 14, color: Colors.grey)),
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  color: isDarkMode ? Colors.grey[400] : Colors.grey)),
                         ],
                       ),
                     ),
-                    const Icon(Icons.arrow_forward_ios, color: Colors.pink, size: 20),
+                    Icon(Icons.arrow_forward_ios,
+                        color: isDarkMode ? const Color(0xFFEC407A) : Colors.pink,
+                        size: 20),
                   ],
                 ),
               ),
             ),
           ),
           const SizedBox(height: 32),
+          Consumer<ThemeProvider>(
+            builder: (context, themeProvider, child) {
+              String themeModeText;
+              switch (themeProvider.themeModeSetting) {
+                case ThemeModeSetting.system:
+                  themeModeText = tr('theme_system');
+                  break;
+                case ThemeModeSetting.light:
+                  themeModeText = tr('theme_light');
+                  break;
+                case ThemeModeSetting.dark:
+                  themeModeText = tr('theme_dark');
+                  break;
+              }
+              return ListTile(
+                leading: const Icon(Icons.dark_mode_outlined),
+                title: Text(tr('dark_mode')),
+                subtitle: Text(themeModeText),
+                onTap: () => _showThemeModeDialog(context, themeProvider),
+              );
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.mail_outline),
             title: Text(tr('contact')),
-            onTap: () => _launchMail(context),
+            onTap: () => _showFeedbackDialog(context),
           ),
           ListTile(
             leading: const Icon(Icons.description_outlined),
@@ -223,12 +306,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   tr('version'),
-                  style: const TextStyle(color: Colors.grey),
+                  style: TextStyle(color: isDarkMode ? Colors.grey[400] : Colors.grey),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  defaultTargetPlatform == TargetPlatform.android ? 'v1.0.7' : 'v1.0.4',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  'v2.0.3',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isDarkMode ? Colors.white : Colors.black,
+                  ),
                 ),
               ],
             ),
@@ -250,35 +336,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         // 評価完了後のフィードバック
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('rate_thanks')),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          _showDialog(tr('rate_thanks'));
         }
       } else {
         // 評価機能が利用できない場合（Androidなど）
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('rate_ios_only')),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 3),
-            ),
-          );
+          _showDialog(tr('rate_ios_only'));
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(tr('rate_error')),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        _showDialog(tr('rate_error'));
       }
     }
   }

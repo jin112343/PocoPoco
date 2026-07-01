@@ -118,13 +118,17 @@ class StitchSettingsService {
         } else if (stitchData['type'] == 'custom') {
           // imagePathが空文字列の場合はnullとして扱う
           final imagePathRaw = stitchData['imagePath'] as String?;
-          final imagePath = (imagePathRaw == null || imagePathRaw.isEmpty)
+          var imagePath = (imagePathRaw == null || imagePathRaw.isEmpty)
               ? null
               : imagePathRaw;
 
+          final nameJa =
+              stitchData['nameJa'] as String? ?? stitchData['name'] as String;
+          // imagePathがnullの場合、編み目名から画像パスを復元
+          imagePath ??= CustomStitch.lookupImagePath(nameJa);
+
           return CustomStitch(
-            nameJa:
-                stitchData['nameJa'] as String? ?? stitchData['name'] as String,
+            nameJa: nameJa,
             nameEn:
                 stitchData['nameEn'] as String? ?? stitchData['name'] as String,
             imagePath: imagePath,

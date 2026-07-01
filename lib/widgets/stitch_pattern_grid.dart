@@ -17,6 +17,7 @@ class StitchPatternGrid extends StatefulWidget {
     this.projectStitches, // プロジェクト固有の編み目設定
     this.onStitchSettingsChanged, // 編み目設定が変更された時のコールバック
     this.onProjectStitchesChanged, // プロジェクト固有の編み目設定が変更された時のコールバック
+    this.isLandscape = false, // 横向きモード
   });
 
   final CrochetStitch selectedStitch;
@@ -26,6 +27,7 @@ class StitchPatternGrid extends StatefulWidget {
   final VoidCallback? onStitchSettingsChanged; // 編み目設定が変更された時のコールバック
   final Function(List<dynamic>)?
       onProjectStitchesChanged; // プロジェクト固有の編み目設定が変更された時のコールバック
+  final bool isLandscape; // 横向きモード
 
   @override
   State<StitchPatternGrid> createState() => _StitchPatternGridState();
@@ -288,11 +290,25 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     }
   }
 
+  // 横向き時の列数を取得
+  int _getCrossAxisCount() {
+    return widget.isLandscape ? 2 : 3;
+  }
+
+  // 横向き時のアスペクト比を取得
+  double _getChildAspectRatio() {
+    return widget.isLandscape ? 2.0 : 1.3;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    final crossAxisCount = _getCrossAxisCount();
+    final childAspectRatio = _getChildAspectRatio();
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,12 +316,15 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text(
-              '編み方を選択（タップで追加）',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
+            Flexible(
+              child: Text(
+                '編み方を選択（タップで追加）',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: isDarkMode ? Colors.white70 : Colors.black87,
+                ),
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             // 編み目カスタマイズボタン
@@ -354,11 +373,13 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
             borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(
-                color: Colors.pink.withValues(alpha: 0.1),
+                color: isDarkMode
+                    ? Colors.black.withValues(alpha: 0.3)
+                    : Colors.pink.withValues(alpha: 0.1),
                 blurRadius: 8,
                 offset: const Offset(0, 4),
               ),
@@ -369,12 +390,12 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
               // 7つ以上のボタンがある場合はスクロール可能にする
               _stitches.length > 7
                   ? SizedBox(
-                      height: _calculateGridHeight(_stitches.length),
+                      height: _calculateGridHeight(_stitches.length, crossAxisCount),
                       child: GridView.builder(
                         gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          childAspectRatio: 1.3,
+                            SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          childAspectRatio: childAspectRatio,
                           crossAxisSpacing: 10,
                           mainAxisSpacing: 10,
                         ),
@@ -497,9 +518,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
                       physics: const NeverScrollableScrollPhysics(),
                       scrollDirection: Axis.vertical,
                       gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        childAspectRatio: 1.3,
+                          SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        childAspectRatio: childAspectRatio,
                         crossAxisSpacing: 10,
                         mainAxisSpacing: 10,
                       ),
@@ -635,14 +656,13 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     );
   }
 
-  double _calculateGridHeight(int itemCount) {
+  double _calculateGridHeight(int itemCount, int crossAxisCount) {
     // ボタンの数に応じて適切な高さを計算
-    // 3列のグリッドで、各ボタンの高さは約80px（childAspectRatio: 1.3を考慮）
-    // 行数 = ceil(itemCount / 3)
-    final rows = (itemCount / 3).ceil();
+    // 行数 = ceil(itemCount / crossAxisCount)
+    final rows = (itemCount / crossAxisCount).ceil();
 
-    // 各ボタンの高さ（約80px）+ 行間のスペース（10px）+ パディング
-    const buttonHeight = 80.0;
+    // 各ボタンの高さ（横向きの場合は小さめ）+ 行間のスペース（10px）+ パディング
+    final buttonHeight = widget.isLandscape ? 60.0 : 80.0;
     const rowSpacing = 10.0;
     const padding = 24.0; // 上下のパディング
 
@@ -650,9 +670,9 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     final calculatedHeight =
         (rows * buttonHeight) + ((rows - 1) * rowSpacing) + padding;
 
-    // 最小高さと最大高さを設定
-    const minHeight = 200.0;
-    const maxHeight = 400.0;
+    // 最小高さと最大高さを設定（横向きの場合は調整）
+    final minHeight = widget.isLandscape ? 150.0 : 200.0;
+    final maxHeight = widget.isLandscape ? 300.0 : 400.0;
 
     return calculatedHeight.clamp(minHeight, maxHeight);
   }

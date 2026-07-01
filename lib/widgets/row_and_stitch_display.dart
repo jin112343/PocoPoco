@@ -14,15 +14,19 @@ class RowAndStitchDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(alpha: 0.1),
+            color: isDarkMode
+                ? Colors.black.withValues(alpha: 0.3)
+                : Colors.pink.withValues(alpha: 0.1),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -42,18 +46,18 @@ class RowAndStitchDisplay extends StatelessWidget {
               children: [
                 Text(
                   '$rowNumber',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 28,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFFAD1457),
+                    color: isDarkMode ? const Color(0xFFEC407A) : const Color(0xFFAD1457),
                   ),
                 ),
-                const Text(
+                Text(
                   '段目',
                   style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFFAD1457),
+                    color: isDarkMode ? const Color(0xFFEC407A) : const Color(0xFFAD1457),
                   ),
                 ),
               ],
@@ -65,18 +69,18 @@ class RowAndStitchDisplay extends StatelessWidget {
             children: [
               Text(
                 '$stitchCount目',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.w600,
-                  color: Color(0xFF1976D2),
+                  color: isDarkMode ? const Color(0xFF64B5F6) : const Color(0xFF1976D2),
                 ),
               ),
-              const Text(
+              Text(
                 '編み目数',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey,
+                  color: isDarkMode ? Colors.grey[400] : Colors.grey,
                 ),
               ),
             ],

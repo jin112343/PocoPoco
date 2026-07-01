@@ -6,7 +6,7 @@
   "upgrade": "アップグレード",
   "edit_stitch_buttons": "編み方ボタン編集",
   "edit_stitch_buttons_desc": "ボタンの並べ替え・削除・追加",
-  "contact": "お問い合わせ",
+  "contact": "お問い合わせ・機能改善（匿名送信）",
   "terms": "利用規約",
   "privacy": "プライバシーポリシー",
   "rate_app": "アプリを評価する",
@@ -24,6 +24,8 @@
   "undo": "1つ戻す",
   "complete_row": "段完成",
   "reset": "リセット",
+  "reset_confirm_title": "リセットの確認",
+  "reset_confirm_message": "すべての編み目をリセットしますか？この操作は取り消せません。",
   "stitch_name_hint": "例: 長々編み",
   "stitch_symbol_hint": "例: ∧",
   "delete_confirm": "本当に削除しますか？",
@@ -42,5 +44,9 @@
   "no_thanks": "いいえ、結構です",
   "save_changes_title": "変更を保存",
   "save_changes_message": "変更を保存しますか?",
-  "dont_save": "保存しない"
+  "dont_save": "保存しない",
+  "dark_mode": "ダークモード",
+  "theme_system": "システムに合わせる",
+  "theme_light": "ライト",
+  "theme_dark": "ダーク"
 } 
