@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // お問い合わせは誰でも作成可能、読み取り・更新・削除は不可
+    match /feedback/{document=**} {
+      allow create: if true;
+      allow read, update, delete: if false;
+    }
+  }
+}

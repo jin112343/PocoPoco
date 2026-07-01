@@ -42,5 +42,9 @@
   "no_thanks": "No, Thanks",
   "save_changes_title": "Save Changes",
   "save_changes_message": "Do you want to save your changes?",
-  "dont_save": "Don't Save"
+  "dont_save": "Don't Save",
+  "dark_mode": "Dark Mode",
+  "theme_system": "System",
+  "theme_light": "Light",
+  "theme_dark": "Dark"
 } 

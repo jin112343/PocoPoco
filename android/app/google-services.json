@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "31476427074",
+    "project_id": "pocopoco-7b9ab",
+    "storage_bucket": "pocopoco-7b9ab.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:31476427074:android:ec4997ab1c4e983215c0db",
+        "android_client_info": {
+          "package_name": "com.mizoijin.pocopoco"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA1_6FxMS16sm67HCciqbJQvP5ZuqVMt5I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

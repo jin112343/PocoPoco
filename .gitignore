@@ -44,3 +44,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Cloud Functions dependencies
+functions/node_modules/
+
+# Stray build output folders (macOS duplicates, CMake artifacts)
+build */

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
+import 'package:confetti/confetti.dart';
 import '../services/subscription_provider.dart';
 import 'home_screen.dart';
 import 'terms_screen.dart';
@@ -24,12 +26,34 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   bool _purchasePending = false;
   bool _restorePending = false;
   String? _error;
+  // 購入処理のタイムアウト用タイマー
+  static const _purchaseTimeoutDuration = Duration(seconds: 60);
   String? _activePlan;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+
+  /// ダイアログ表示のヘルパー
+  void _showDialog(String message) {
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
+  }
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  late ConfettiController _confettiController;
 
   static List<String> get _kProductIds {
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -88,12 +112,17 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       curve: Curves.easeInOut,
     ));
     _pulseController.repeat(reverse: true);
+
+    // Confettiコントローラー
+    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
   }
 
   @override
   void dispose() {
+    _cancelPurchaseTimeout();
     _animationController.dispose();
     _pulseController.dispose();
+    _confettiController.dispose();
     super.dispose();
   }
 
@@ -104,8 +133,12 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       _error = null;
     });
 
+    _startPurchaseTimeout();
+
     try {
       await _iap.restorePurchases();
+
+      _cancelPurchaseTimeout();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -116,6 +149,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
         );
       }
     } catch (e) {
+      _cancelPurchaseTimeout();
       if (mounted) {
         setState(() {
           _error = '購入情報の復元に失敗しました: $e';
@@ -137,90 +171,109 @@ class _UpgradeScreenState extends State<UpgradeScreen>
   }
 
   void _handlePurchaseUpdates(List<PurchaseDetails> purchaseDetailsList) {
-    purchaseDetailsList.forEach((PurchaseDetails purchaseDetails) async {
-      if (purchaseDetails.status == PurchaseStatus.pending) {
-        // 購入処理中
-        setState(() {
-          _purchasePending = true;
-        });
-      } else {
-        if (purchaseDetails.status == PurchaseStatus.error) {
-          // エラー
-          setState(() {
-            _error = purchaseDetails.error?.message ?? '購入エラーが発生しました';
-            _purchasePending = false;
-          });
-        } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-            purchaseDetails.status == PurchaseStatus.restored) {
-          // 購入成功または復元成功
-          // プレミアム状態を更新
-          final subscriptionProvider = context.read<SubscriptionProvider>();
+    for (final purchaseDetails in purchaseDetailsList) {
+      _processPurchaseDetails(purchaseDetails);
+    }
+  }
 
-          if (purchaseDetails.productID == 'yearly_sub') {
-            // 年間プランの場合、トライアルを開始
-            if (!subscriptionProvider.hasUsedTrial) {
-              await subscriptionProvider.startFreeTrial();
-            } else {
-              // トライアル使用済みの場合は通常のサブスクリプションとして処理
-              final expiryDate = DateTime.now().add(const Duration(days: 365));
-              subscriptionProvider.setPremium(
-                true,
-                subscriptionId: purchaseDetails.productID,
-                expiryDate: expiryDate,
-              );
-            }
-          } else if (purchaseDetails.productID == 'monthly_sub' ||
-              purchaseDetails.productID == 'monthly-sub') {
-            // 月額プランの場合は通常のサブスクリプションとして処理
-            final expiryDate = DateTime.now().add(const Duration(days: 30));
+  Future<void> _processPurchaseDetails(PurchaseDetails purchaseDetails) async {
+    if (purchaseDetails.status == PurchaseStatus.pending) {
+      // 購入処理中
+      setState(() {
+        _purchasePending = true;
+      });
+    } else {
+      // 購入処理完了（成功・エラー問わず）タイムアウトタイマーを解除
+      _cancelPurchaseTimeout();
+
+      if (purchaseDetails.status == PurchaseStatus.canceled) {
+        // キャンセル
+        setState(() {
+          _purchasePending = false;
+          _restorePending = false;
+          _error = null;
+        });
+        return;
+      } else if (purchaseDetails.status == PurchaseStatus.error) {
+        // エラー
+        setState(() {
+          _error = purchaseDetails.error?.message ?? '購入エラーが発生しました';
+          _purchasePending = false;
+        });
+      } else if (purchaseDetails.status == PurchaseStatus.purchased ||
+          purchaseDetails.status == PurchaseStatus.restored) {
+        // 購入成功または復元成功
+        // プレミアム状態を更新
+        final subscriptionProvider = context.read<SubscriptionProvider>();
+
+        if (purchaseDetails.productID == 'yearly_sub') {
+          // 年間プランの場合、トライアルを開始
+          if (!subscriptionProvider.hasUsedTrial) {
+            await subscriptionProvider.startFreeTrial();
+          } else {
+            // トライアル使用済みの場合は通常のサブスクリプションとして処理
+            final expiryDate = DateTime.now().add(const Duration(days: 365));
             subscriptionProvider.setPremium(
               true,
               subscriptionId: purchaseDetails.productID,
               expiryDate: expiryDate,
             );
+            // 課金が発生するのでconfettiを発射
+            _confettiController.play();
           }
+        } else if (purchaseDetails.productID == 'monthly_sub' ||
+            purchaseDetails.productID == 'monthly-sub') {
+          // 月額プランの場合は通常のサブスクリプションとして処理
+          final expiryDate = DateTime.now().add(const Duration(days: 30));
+          subscriptionProvider.setPremium(
+            true,
+            subscriptionId: purchaseDetails.productID,
+            expiryDate: expiryDate,
+          );
+          // 月額プランは課金が発生するのでconfettiを発射
+          _confettiController.play();
+        }
 
-          setState(() {
-            _activePlan = purchaseDetails.productID;
-            _purchasePending = false;
-            _error = null;
-          });
+        setState(() {
+          _activePlan = purchaseDetails.productID;
+          _purchasePending = false;
+          _error = null;
+        });
 
-          // 購入完了を通知
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('プレミアムプランにアップグレードしました！'),
-                backgroundColor: Colors.green,
-              ),
-            );
+        // 購入完了を通知
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('プレミアムプランにアップグレードしました！'),
+              backgroundColor: Colors.green,
+            ),
+          );
 
-            // 新規購入の場合のみ画面を戻す（復元の場合は戻さない）
-            if (purchaseDetails.status == PurchaseStatus.purchased) {
-              // 少し待ってから前の画面に戻る
-              await Future.delayed(const Duration(milliseconds: 500));
-              if (mounted) {
-                // 設定画面から来た場合は設定画面に戻る、それ以外はホーム画面に戻る
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
-                } else {
-                  Navigator.of(context).pushAndRemoveUntil(
-                    MaterialPageRoute(
-                      builder: (context) => const HomeScreen(),
-                    ),
-                    (route) => false,
-                  );
-                }
+          // 新規購入の場合のみ画面を戻す（復元の場合は戻さない）
+          if (purchaseDetails.status == PurchaseStatus.purchased) {
+            // 少し待ってから前の画面に戻る
+            await Future.delayed(const Duration(milliseconds: 500));
+            if (mounted) {
+              // 設定画面から来た場合は設定画面に戻る、それ以外はホーム画面に戻る
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              } else {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(
+                    builder: (context) => const HomeScreen(),
+                  ),
+                  (route) => false,
+                );
               }
             }
           }
         }
-
-        if (purchaseDetails.pendingCompletePurchase) {
-          await _iap.completePurchase(purchaseDetails);
-        }
       }
-    });
+
+      if (purchaseDetails.pendingCompletePurchase) {
+        await _iap.completePurchase(purchaseDetails);
+      }
+    }
   }
 
   Future<void> _initStoreInfo() async {
@@ -255,6 +308,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       _error = null;
     });
 
+    // タイムアウト処理：一定時間応答がなければ自動解除
+    _startPurchaseTimeout();
+
     final PurchaseParam purchaseParam = PurchaseParam(productDetails: product);
 
     try {
@@ -264,12 +320,14 @@ class _UpgradeScreenState extends State<UpgradeScreen>
         // サブスクリプション商品 - buyConsumableを使用
         _iap.buyConsumable(purchaseParam: purchaseParam);
       } else {
+        _cancelPurchaseTimeout();
         setState(() {
           _error = '無効なプランです';
           _purchasePending = false;
         });
       }
     } catch (e) {
+      _cancelPurchaseTimeout();
       setState(() {
         _error = '購入処理中にエラーが発生しました: $e';
         _purchasePending = false;
@@ -277,7 +335,27 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     }
   }
 
-  Widget _buildFeatureItem(String icon, String title, String description) {
+  Timer? _purchaseTimeoutTimer;
+
+  void _startPurchaseTimeout() {
+    _cancelPurchaseTimeout();
+    _purchaseTimeoutTimer = Timer(_purchaseTimeoutDuration, () {
+      if (mounted && (_purchasePending || _restorePending)) {
+        setState(() {
+          _purchasePending = false;
+          _restorePending = false;
+          _error = '処理がタイムアウトしました。通信状況をご確認の上、再度お試しください。';
+        });
+      }
+    });
+  }
+
+  void _cancelPurchaseTimeout() {
+    _purchaseTimeoutTimer?.cancel();
+    _purchaseTimeoutTimer = null;
+  }
+
+  Widget _buildFeatureItem(String icon, String title, String description, {bool isDarkMode = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
@@ -289,9 +367,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
               color: const Color(0xFFEC407A).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(20),
             ),
-            child: Icon(
+            child: const Icon(
               Icons.check_circle,
-              color: const Color(0xFFEC407A),
+              color: Color(0xFFEC407A),
               size: 20,
             ),
           ),
@@ -302,16 +380,17 @@ class _UpgradeScreenState extends State<UpgradeScreen>
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
+                    color: isDarkMode ? Colors.white : Colors.black87,
                   ),
                 ),
                 Text(
                   description,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey[600],
+                    color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                   ),
                 ),
               ],
@@ -345,7 +424,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     );
   }
 
-  Widget _buildPlanCard(ProductDetails product) {
+  Widget _buildPlanCard(ProductDetails product, {bool isDarkMode = false}) {
     // プラン名を日本語で表示
     String planName = '';
     String planDescription = '';
@@ -390,7 +469,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: canUseTrial
@@ -414,22 +493,22 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
                       colors: [Color(0xFF00E676), Color(0xFF00C853)],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
-                    borderRadius: const BorderRadius.only(
+                    borderRadius: BorderRadius.only(
                       topLeft: Radius.circular(18),
                       topRight: Radius.circular(18),
                     ),
                   ),
                   child: Column(
                     children: [
-                      Row(
+                      const Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
+                        children: [
                           Icon(
                             Icons.celebration,
                             color: Colors.white,
@@ -516,16 +595,17 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                             children: [
                               Text(
                                 planName,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
+                                  color: isDarkMode ? Colors.white : Colors.black87,
                                 ),
                               ),
                               Text(
                                 planDescription,
                                 style: TextStyle(
                                   fontSize: 14,
-                                  color: Colors.grey[600],
+                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                                 ),
                               ),
                             ],
@@ -569,8 +649,8 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                         ),
                         child: Column(
                           children: [
-                            Row(
-                              children: const [
+                            const Row(
+                              children: [
                                 Icon(
                                   Icons.calendar_today,
                                   color: Color(0xFF00C853),
@@ -588,11 +668,11 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                               ],
                             ),
                             const SizedBox(height: 8),
-                            const Text(
+                            Text(
                               '3日間無料でお試し後、自動的に年間プラン（¥3,000/年）に移行します',
                               style: TextStyle(
                                 fontSize: 13,
-                                color: Colors.black87,
+                                color: isDarkMode ? Colors.white : Colors.black87,
                               ),
                             ),
                             const SizedBox(height: 8),
@@ -629,9 +709,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                               const SizedBox(width: 12),
                               Text(
                                 feature,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
+                                  color: isDarkMode ? Colors.white : Colors.black87,
                                 ),
                               ),
                             ],
@@ -673,7 +754,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                 '価格',
                                 style: TextStyle(
                                   fontSize: 12,
-                                  color: Colors.grey[600],
+                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                                 ),
                               ),
                               Text(
@@ -742,21 +823,33 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     );
   }
 
+  bool get _isProcessing => _purchasePending || _restorePending;
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              Color(0xFFEC407A),
-              Color(0xFF9C27B0),
-            ],
-          ),
-        ),
-        child: SafeArea(
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return PopScope(
+      canPop: !_isProcessing,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _isProcessing) {
+          _showDialog('処理中です。しばらくお待ちください。');
+        }
+      },
+      child: Scaffold(
+      body: Stack(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: isDarkMode
+                    ? [const Color(0xFF880E4F), const Color(0xFF4A148C)]
+                    : [const Color(0xFFEC407A), const Color(0xFF9C27B0)],
+              ),
+            ),
+            child: SafeArea(
           child: _loading
               ? const Center(
                   child: CircularProgressIndicator(
@@ -836,10 +929,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                             child: Column(
                                               children: [
                                                 // キラキラアイコン行
-                                                Row(
+                                                const Row(
                                                   mainAxisAlignment:
                                                       MainAxisAlignment.center,
-                                                  children: const [
+                                                  children: [
                                                     Icon(Icons.star,
                                                         color: Colors.white,
                                                         size: 24),
@@ -897,10 +990,10 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                                       ),
                                                     ],
                                                   ),
-                                                  child: Row(
+                                                  child: const Row(
                                                     mainAxisSize:
                                                         MainAxisSize.min,
-                                                    children: const [
+                                                    children: [
                                                       Icon(
                                                         Icons.verified,
                                                         color:
@@ -987,9 +1080,9 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.center,
                                     children: [
-                                      Row(
+                                      const Row(
                                         mainAxisAlignment: MainAxisAlignment.center,
-                                        children: const [
+                                        children: [
                                           Icon(Icons.android, color: Colors.white, size: 22),
                                           SizedBox(width: 8),
                                           Text(
@@ -1045,7 +1138,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                               // メインコンテンツ
                               Container(
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
                                   borderRadius: BorderRadius.circular(24),
                                   boxShadow: [
                                     BoxShadow(
@@ -1060,11 +1153,12 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     // タイトル
-                                    const Text(
+                                    Text(
                                       'プレミアム機能を体験',
                                       style: TextStyle(
                                         fontSize: 22,
                                         fontWeight: FontWeight.bold,
+                                        color: isDarkMode ? Colors.white : Colors.black87,
                                       ),
                                     ),
                                     const SizedBox(height: 8),
@@ -1072,7 +1166,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                       '編み物をより楽しく、より効率的に',
                                       style: TextStyle(
                                         fontSize: 16,
-                                        color: Colors.grey[600],
+                                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
                                       ),
                                     ),
                                     const SizedBox(height: 24),
@@ -1082,38 +1176,41 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                       '0xe3c9', // Icons.favorite
                                       '無制限の編み目カウント',
                                       '編み目の数を制限なく記録できます',
+                                      isDarkMode: isDarkMode,
                                     ),
                                     _buildFeatureItem(
                                       '0xe3b7', // Icons.settings
                                       'カスタム編み目設定',
                                       '自分だけの編み目パターンを作成',
+                                      isDarkMode: isDarkMode,
                                     ),
                                     _buildFeatureItem(
                                       '0xe3b0', // Icons.block
                                       '広告なし',
                                       '快適な編み物体験を提供',
+                                      isDarkMode: isDarkMode,
                                     ),
 
                                     const SizedBox(height: 16),
                                     Container(
                                       padding: const EdgeInsets.all(16),
                                       decoration: BoxDecoration(
-                                        color: Colors.grey[100],
+                                        color: isDarkMode ? const Color(0xFF3D3D3D) : Colors.grey[100],
                                         borderRadius: BorderRadius.circular(12),
                                         border: Border.all(
-                                          color:
-                                              Colors.grey[300] ?? Colors.grey,
+                                          color: isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
                                         ),
                                       ),
                                       child: Column(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          const Text(
+                                          Text(
                                             'サブスクリプション情報',
                                             style: TextStyle(
                                               fontSize: 16,
                                               fontWeight: FontWeight.bold,
+                                              color: isDarkMode ? Colors.white : Colors.black87,
                                             ),
                                           ),
                                           const SizedBox(height: 8),
@@ -1128,7 +1225,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                                             '• 利用規約とプライバシーポリシーへの機能的なリンクが提供されています',
                                             style: TextStyle(
                                               fontSize: 14,
-                                              color: Colors.grey[700],
+                                              color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
                                             ),
                                           ),
                                         ],
@@ -1141,7 +1238,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
 
                               // プラン選択（iOS/Android 共通）
                               ..._products
-                                  .map((product) => _buildPlanCard(product)),
+                                  .map((product) => _buildPlanCard(product, isDarkMode: isDarkMode)),
 
                               // 管理ボタン群（iOSのみ）
                               if (defaultTargetPlatform ==
@@ -1372,7 +1469,78 @@ class _UpgradeScreenState extends State<UpgradeScreen>
                         ),
                       ),
                     ),
-        ),
+            ),
+          ),
+          // Confettiウィジェット（課金成功時に表示）
+          Align(
+            alignment: Alignment.topCenter,
+            child: ConfettiWidget(
+              confettiController: _confettiController,
+              blastDirectionality: BlastDirectionality.explosive,
+              shouldLoop: false,
+              colors: const [
+                Colors.pink,
+                Colors.purple,
+                Colors.orange,
+                Colors.yellow,
+                Colors.green,
+                Colors.blue,
+              ],
+              numberOfParticles: 30,
+              maxBlastForce: 20,
+              minBlastForce: 8,
+              emissionFrequency: 0.05,
+              gravity: 0.2,
+            ),
+          ),
+          // 課金・復元処理中の全画面ローディングオーバーレイ
+          if (_isProcessing)
+            Container(
+              color: Colors.black.withValues(alpha: 0.5),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                  decoration: BoxDecoration(
+                    color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEC407A)),
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        _restorePending ? '購入情報を復元中...' : '購入処理中...',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: isDarkMode ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'この画面を閉じないでください',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
       ),
     );
   }

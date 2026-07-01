@@ -39,5 +39,9 @@
   "watch_ad_reset_title": "¿Ver anuncio de video?",
   "watch_ad_reset_message": "Mira un anuncio de video para restablecer el contador.",
   "watch_ad": "Ver Anuncio",
-  "no_thanks": "No, Gracias"
+  "no_thanks": "No, Gracias",
+  "dark_mode": "Modo Oscuro",
+  "theme_system": "Sistema",
+  "theme_light": "Claro",
+  "theme_dark": "Oscuro"
 } 
