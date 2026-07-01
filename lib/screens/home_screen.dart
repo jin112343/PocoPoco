@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:logger/logger.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/crochet_project.dart';
@@ -63,7 +64,7 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: Text(tr('ok')),
             ),
           ],
         ),
@@ -82,84 +83,105 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initDocumentsPath() async {
     final directory = await getApplicationDocumentsDirectory();
     _documentsPath = directory.path;
+    // パス取得前に描画されたアイコン画像を再解決するため再描画する
+    if (mounted) {
+      setState(() {});
+    }
   }
 
-  /// バージョン2.0.2の初回起動時にアップデート内容を表示
+  /// カメラ/アルバムから画像を選択してドキュメントディレクトリに保存し、
+  /// 保存したファイル名を返す（キャンセル時はnull）
+  Future<String?> _pickAndSaveIconImage(
+      ImageSource source, String projectId) async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(
+      source: source,
+      maxWidth: 512,
+      maxHeight: 512,
+      imageQuality: 85,
+    );
+    if (image == null) return null;
+
+    // アプリのドキュメントディレクトリに保存
+    final directory = await getApplicationDocumentsDirectory();
+    _documentsPath = directory.path;
+    final fileName =
+        'icon_${projectId}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final savedPath = '${directory.path}/$fileName';
+    // iOSの一時ファイルを確実に読み取るためにreadAsBytesを使用
+    final bytes = await image.readAsBytes();
+    await File(savedPath).writeAsBytes(bytes);
+    // ファイル名のみ返す（iOSのサンドボックスパス変更対策）
+    return fileName;
+  }
+
+  /// バージョンごとの更新内容（新バージョンのリリース時にここへ追記する）
+  /// キーはpubspec.yamlのバージョン（ビルド番号を除く）と一致させること
+  static const Map<String, List<String>> _releaseNotes = {
+    '2.0.2': [
+      '1. PDFで編み物を共有できる機能の修正',
+      '2. カメラで撮ったものをアイコンにできるバグ修正',
+      '3. 設定画面でお問い合わせを匿名化（改善案どしどしお待ちしております）',
+      '4. iPadのボタン編集のバグ修正',
+      '5. 立ち上がり編み目の追加',
+    ],
+  };
+
+  /// 現在のバージョンの初回起動時にアップデート内容を表示
   Future<void> _showUpdateDialogIfNeeded() async {
-    const String updateDialogKey = 'version_2_0_2_update_dialog_shown';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      final version = info.version;
+      final notes = _releaseNotes[version];
+      // このバージョン向けの更新内容が定義されていなければ何もしない
+      if (notes == null) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final hasShown = prefs.getBool(updateDialogKey) ?? false;
+      final updateDialogKey = 'update_dialog_shown_$version';
+      final prefs = await SharedPreferences.getInstance();
+      final hasShown = prefs.getBool(updateDialogKey) ?? false;
+      if (hasShown || !mounted) return;
 
-    if (!hasShown && mounted) {
       // ダイアログ表示前にフラグを保存（表示を確実に1回だけにする）
       await prefs.setBool(updateDialogKey, true);
 
       // 画面が描画されてからダイアログを表示
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => AlertDialog(
-              title: const Text(
-                'バージョン 2.0.2 更新内容',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
+        if (!mounted) return;
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Text(
+              tr('version_update_title', namedArgs: {'version': version}),
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
               ),
-              content: const SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '1. PDFで編み物を共有できる機能の修正',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      '2. カメラで撮ったものをアイコンにできるバグ修正',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      '3. 設定画面でお問い合わせを匿名化（改善案どしどしお待ちしております）',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      '4. iPadのボタン編集のバグ修正',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      '5. 立ち上がり編み目の追加',
-                      style: TextStyle(fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('OK'),
-                ),
-              ],
             ),
-          );
-        }
+            content: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final note in notes) ...[
+                    Text(note, style: const TextStyle(fontSize: 14)),
+                    if (note != notes.last) const SizedBox(height: 8),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(tr('ok')),
+              ),
+            ],
+          ),
+        );
       });
+    } catch (e) {
+      logger.e('HomeScreen._showUpdateDialogIfNeeded: 更新ダイアログ表示エラー: $e');
     }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // プレミアム状態の変更を監視
-    final isPremium = context.watch<SubscriptionProvider>().isPremium;
-    logger.d('HomeScreen.didChangeDependencies: プレミアム状態 - isPremium: $isPremium');
   }
 
   Future<void> _loadProjects() async {
@@ -169,17 +191,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       final projects = await _storageService.getProjects();
+      if (!mounted) return;
       setState(() {
         _projects = projects;
         _isLoading = false;
       });
     } catch (e) {
+      logger.e('HomeScreen._loadProjects: プロジェクト読み込みエラー: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
-      if (mounted) {
-        _showDialog('プロジェクトの読み込みに失敗しました: $e');
-      }
+      _showDialog(tr('projects_load_failed'));
     }
   }
 
@@ -189,9 +212,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final status = await AppTrackingTransparency.trackingAuthorizationStatus;
       if (status == TrackingStatus.notDetermined) {
-        setState(() {
-          _hasRequestedTracking = true;
-        });
+        _hasRequestedTracking = true; // UIに影響しないためsetState不要
         await AppTrackingTransparency.requestTrackingAuthorization();
       }
     } catch (e, stackTrace) {
@@ -216,12 +237,12 @@ class _HomeScreenState extends State<HomeScreen> {
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('保存上限に達しました'),
-          content: const Text('無料プランでは最大3つまで保存できます。\nアップグレードで無制限に保存できます。'),
+          title: Text(tr('save_limit_reached')),
+          content: Text(tr('save_limit_message')),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('キャンセル'),
+              child: Text(tr('cancel')),
             ),
             TextButton(
               onPressed: () {
@@ -232,7 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 );
               },
-              child: const Text('アップグレード'),
+              child: Text(tr('upgrade')),
             ),
           ],
         ),
@@ -273,13 +294,13 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('編みものを編集'),
+        title: Text(tr('edit_project')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
               leading: const Icon(Icons.edit),
-              title: const Text('タイトルを編集'),
+              title: Text(tr('edit_title')),
               onTap: () {
                 Navigator.of(context).pop();
                 _editProjectTitle(project);
@@ -287,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.palette),
-              title: const Text('アイコンと色を編集'),
+              title: Text(tr('edit_icon_and_color')),
               onTap: () {
                 Navigator.of(context).pop();
                 _editProjectIconAndColor(project);
@@ -295,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.picture_as_pdf),
-              title: const Text('PDFで共有'),
+              title: Text(tr('share_pdf')),
               onTap: () async {
                 Navigator.of(context).pop();
                 await _exportProjectToPdf(project);
@@ -303,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             ListTile(
               leading: const Icon(Icons.delete),
-              title: const Text('リストの削除'),
+              title: Text(tr('delete_list')),
               onTap: () {
                 Navigator.of(context).pop();
                 _deleteProject(project);
@@ -314,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('キャンセル'),
+            child: Text(tr('cancel')),
           ),
         ],
       ),
@@ -329,19 +350,19 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('編みもの名を編集'),
+        title: Text(tr('edit_project_name')),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(
-            labelText: '編みもの名',
-            hintText: '例: マフラー',
+          decoration: InputDecoration(
+            labelText: tr('project_name'),
+            hintText: tr('project_title_hint'),
           ),
           autofocus: true,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('キャンセル'),
+            child: Text(tr('cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -361,16 +382,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (success) {
                   _loadProjects();
                   if (mounted) {
-                    _showDialog('編みもの名を更新しました');
+                    _showDialog(tr('project_name_updated'));
                   }
                 } else {
                   if (mounted) {
-                    _showDialog('編みもの名の更新に失敗しました');
+                    _showDialog(tr('project_name_update_failed'));
                   }
                 }
               }
             },
-            child: const Text('保存'),
+            child: Text(tr('save')),
           ),
         ],
       ),
@@ -464,7 +485,7 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (dialogContext, setState) {
           final isDarkMode = Theme.of(dialogContext).brightness == Brightness.dark;
           return AlertDialog(
-          title: Text('アイコンと色を編集',
+          title: Text(tr('edit_icon_and_color'),
               style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87)),
           content: SingleChildScrollView(
             child: SizedBox(
@@ -527,7 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   // 写真選択セクション
-                  Text('写真から選ぶ',
+                  Text(tr('choose_from_photo'),
                       style: TextStyle(fontWeight: FontWeight.bold,
                           color: isDarkMode ? Colors.white : Colors.black87)),
                   const SizedBox(height: 8),
@@ -538,24 +559,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: InkWell(
                           onTap: () async {
-                            final ImagePicker picker = ImagePicker();
-                            final XFile? image = await picker.pickImage(
-                              source: ImageSource.camera,
-                              maxWidth: 512,
-                              maxHeight: 512,
-                              imageQuality: 85,
-                            );
-                            if (image != null) {
-                              // アプリのドキュメントディレクトリに保存
-                              final directory = await getApplicationDocumentsDirectory();
-                              _documentsPath = directory.path;
-                              final fileName = 'icon_${project.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                              final savedPath = '${directory.path}/$fileName';
-                              // iOSカメラの一時ファイルはreadAsBytesで読み取る必要がある
-                              final bytes = await image.readAsBytes();
-                              await File(savedPath).writeAsBytes(bytes);
+                            final fileName = await _pickAndSaveIconImage(
+                                ImageSource.camera, project.id);
+                            // 撮影中にダイアログが閉じられた場合に備えてmountedを確認
+                            if (fileName != null && dialogContext.mounted) {
                               setState(() {
-                                // ファイル名のみ保存（iOSのサンドボックスパス変更対策）
                                 selectedImagePath = fileName;
                               });
                             }
@@ -571,7 +579,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(Icons.camera_alt, size: 32,
                                     color: isDarkMode ? Colors.grey.shade300 : Colors.grey.shade600),
                                 const SizedBox(height: 4),
-                                Text('カメラ', style: TextStyle(fontSize: 12,
+                                Text(tr('camera'), style: TextStyle(fontSize: 12,
                                     color: isDarkMode ? Colors.grey.shade300 : null)),
                               ],
                             ),
@@ -583,24 +591,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       Expanded(
                         child: InkWell(
                           onTap: () async {
-                            final ImagePicker picker = ImagePicker();
-                            final XFile? image = await picker.pickImage(
-                              source: ImageSource.gallery,
-                              maxWidth: 512,
-                              maxHeight: 512,
-                              imageQuality: 85,
-                            );
-                            if (image != null) {
-                              // アプリのドキュメントディレクトリに保存
-                              final directory = await getApplicationDocumentsDirectory();
-                              _documentsPath = directory.path;
-                              final fileName = 'icon_${project.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-                              final savedPath = '${directory.path}/$fileName';
-                              // iOSの一時ファイルを確実に読み取るためにreadAsBytesを使用
-                              final bytes = await image.readAsBytes();
-                              await File(savedPath).writeAsBytes(bytes);
+                            final fileName = await _pickAndSaveIconImage(
+                                ImageSource.gallery, project.id);
+                            // 選択中にダイアログが閉じられた場合に備えてmountedを確認
+                            if (fileName != null && dialogContext.mounted) {
                               setState(() {
-                                // ファイル名のみ保存（iOSのサンドボックスパス変更対策）
                                 selectedImagePath = fileName;
                               });
                             }
@@ -616,7 +611,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 Icon(Icons.photo_library, size: 32,
                                     color: isDarkMode ? Colors.grey.shade300 : Colors.grey.shade600),
                                 const SizedBox(height: 4),
-                                Text('アルバム', style: TextStyle(fontSize: 12,
+                                Text(tr('album'), style: TextStyle(fontSize: 12,
                                     color: isDarkMode ? Colors.grey.shade300 : null)),
                               ],
                             ),
@@ -651,7 +646,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'クリア',
+                                  tr('clear'),
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: selectedImagePath != null
@@ -668,7 +663,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   // アイコン選択
-                  Text('アイコン',
+                  Text(tr('icon'),
                       style: TextStyle(fontWeight: FontWeight.bold,
                           color: isDarkMode ? Colors.white : Colors.black87)),
                   const SizedBox(height: 8),
@@ -719,7 +714,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   // アイコンの色選択
-                  Text('アイコンの色',
+                  Text(tr('icon_color'),
                       style: TextStyle(fontWeight: FontWeight.bold,
                           color: isDarkMode ? Colors.white : Colors.black87)),
                   const SizedBox(height: 8),
@@ -760,7 +755,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   // 背景色選択
-                  Text('背景色',
+                  Text(tr('background_color'),
                       style: TextStyle(fontWeight: FontWeight.bold,
                           color: isDarkMode ? Colors.white : Colors.black87)),
                   const SizedBox(height: 8),
@@ -807,7 +802,7 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('キャンセル'),
+              child: Text(tr('cancel')),
             ),
             TextButton(
               onPressed: () async {
@@ -829,15 +824,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (success) {
                   _loadProjects();
                   if (mounted) {
-                    _showDialog('アイコンと色を更新しました');
+                    _showDialog(tr('icon_color_updated'));
                   }
                 } else {
                   if (mounted) {
-                    _showDialog('アイコンと色の更新に失敗しました');
+                    _showDialog(tr('icon_color_update_failed'));
                   }
                 }
               },
-              child: const Text('保存'),
+              child: Text(tr('save')),
             ),
           ],
         );
@@ -911,7 +906,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       logger.e('PDF出力エラー: $e');
       if (mounted) {
-        _showDialog('PDF出力に失敗しました: $e');
+        _showDialog(tr('pdf_export_failed', namedArgs: {'error': '$e'}));
       }
     } finally {
       if (mounted) {
@@ -926,12 +921,12 @@ class _HomeScreenState extends State<HomeScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('編みものを削除'),
-        content: Text('「${project.title}」を削除しますか？\nこの操作は取り消せません。'),
+        title: Text(tr('delete_project_title')),
+        content: Text(tr('delete_project_message', namedArgs: {'title': project.title})),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('キャンセル'),
+            child: Text(tr('cancel')),
           ),
           TextButton(
             onPressed: () async {
@@ -946,17 +941,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (success) {
                   _loadProjects();
                   if (mounted) {
-                    _showDialog('編みものを削除しました');
+                    _showDialog(tr('project_deleted'));
                   }
                 } else {
                   if (mounted) {
-                    _showDialog('編みものの削除に失敗しました');
+                    _showDialog(tr('project_delete_failed'));
                   }
                 }
               } catch (e) {
                 logger.e('削除エラー: $e');
                 if (mounted) {
-                  _showDialog('編みものの削除に失敗しました');
+                  _showDialog(tr('project_delete_failed'));
                 }
               } finally {
                 if (mounted) {
@@ -966,7 +961,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 }
               }
             },
-            child: const Text('削除', style: TextStyle(color: Colors.red)),
+            child: Text(tr('delete'), style: const TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -983,7 +978,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    logger.d('HomeScreen.build: ビルド開始 - _isLoading: $_isLoading, projectsCount: ${_projects.length}, isPremium: ${context.read<SubscriptionProvider>().isPremium}');
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
     return Stack(
@@ -1078,26 +1072,30 @@ class _HomeScreenState extends State<HomeScreen> {
                           return await showDialog<bool>(
                             context: context,
                             builder: (context) => AlertDialog(
-                              title: const Text('編みものを削除'),
-                              content: Text('「${project.title}」を削除しますか？'),
+                              title: Text(tr('delete_project_title')),
+                              content: Text(tr('delete_project_confirm',
+                                  namedArgs: {'title': project.title})),
                               actions: [
                                 TextButton(
                                   onPressed: () =>
                                       Navigator.of(context).pop(false),
-                                  child: const Text('キャンセル'),
+                                  child: Text(tr('cancel')),
                                 ),
                                 TextButton(
                                   onPressed: () =>
                                       Navigator.of(context).pop(true),
-                                  child: const Text('削除',
-                                      style: TextStyle(color: Colors.red)),
+                                  child: Text(tr('delete'),
+                                      style: const TextStyle(color: Colors.red)),
                                 ),
                               ],
                             ),
                           );
                         },
                         onDismissed: (direction) async {
+                          // Dismiss済みウィジェットをツリーに残さないよう、
+                          // 先に同期的にリストから削除する（残すとFlutterのアサーションでクラッシュ）
                           setState(() {
+                            _projects.removeWhere((p) => p.id == project.id);
                             _isProcessing = true;
                           });
 
@@ -1105,19 +1103,21 @@ class _HomeScreenState extends State<HomeScreen> {
                             final success =
                                 await _storageService.deleteProject(project.id);
                             if (success) {
-                              _loadProjects();
                               if (mounted) {
-                                _showDialog('編みものを削除しました');
+                                _showDialog(tr('project_deleted'));
                               }
                             } else {
+                              // 削除に失敗した場合は一覧を再読み込みして復元
+                              await _loadProjects();
                               if (mounted) {
-                                _showDialog('編みものの削除に失敗しました');
+                                _showDialog(tr('project_delete_failed'));
                               }
                             }
                           } catch (e) {
                             logger.e('削除エラー: $e');
+                            await _loadProjects();
                             if (mounted) {
-                              _showDialog('編みものの削除に失敗しました');
+                              _showDialog(tr('project_delete_failed'));
                             }
                           } finally {
                             if (mounted) {
@@ -1184,7 +1184,10 @@ class _HomeScreenState extends State<HomeScreen> {
                               children: [
                                 const SizedBox(height: 4),
                                 Text(
-                                  '作成日: ${_formatDate(project.createdAt)} ${_formatTime(project.createdAt)}',
+                                  tr('created_date', namedArgs: {
+                                    'date':
+                                        '${_formatDate(project.createdAt)} ${_formatTime(project.createdAt)}'
+                                  }),
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
@@ -1193,7 +1196,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 if (project.updatedAt != null) ...[
                                   const SizedBox(height: 2),
                                   Text(
-                                    '更新日: ${_formatDate(project.updatedAt!)} ${_formatTime(project.updatedAt!)}',
+                                    tr('updated_date', namedArgs: {
+                                      'date':
+                                          '${_formatDate(project.updatedAt!)} ${_formatTime(project.updatedAt!)}'
+                                    }),
                                     style: TextStyle(
                                       fontSize: 14,
                                       color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
@@ -1202,7 +1208,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                                 const SizedBox(height: 4),
                                 Text(
-                                  '${project.currentRow}段目 ${project.currentStitchCount}目',
+                                  tr('row_stitch_status', namedArgs: {
+                                    'row': '${project.currentRow}',
+                                    'count': '${project.currentStitchCount}',
+                                  }),
                                   style: TextStyle(
                                     fontSize: 14,
                                     color: isDarkMode ? Colors.grey.shade300 : Colors.grey.shade700,
@@ -1214,7 +1223,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             trailing: PopupMenuButton<String>(
                               icon: const Icon(Icons.more_vert),
                               onSelected: (value) {
-                                if (value == 'delete') {
+                                if (value == 'edit') {
                                   _editProject(project);
                                 }
                               },
@@ -1223,12 +1232,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                 final iconColor = isDark ? Colors.white : Colors.black;
                                 return [
                                   PopupMenuItem(
-                                    value: 'delete',
+                                    value: 'edit',
                                     child: Row(
                                       children: [
                                         Icon(Icons.edit, color: iconColor),
                                         const SizedBox(width: 8),
-                                        Text('編集',
+                                        Text(tr('edit'),
                                             style: TextStyle(color: iconColor)),
                                       ],
                                     ),
@@ -1259,22 +1268,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.all(32.0),
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      CircularProgressIndicator(
+                      const CircularProgressIndicator(
                         color: Color(0xFFEC407A),
                         strokeWidth: 4,
                       ),
-                      SizedBox(height: 24),
+                      const SizedBox(height: 24),
                       Text(
-                        '処理中...',
+                        tr('processing'),
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
-                          color: Color(0xFF333333),
+                          color: isDarkMode
+                              ? Colors.white
+                              : const Color(0xFF333333),
                         ),
                       ),
                     ],

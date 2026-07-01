@@ -43,7 +43,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
   // プロジェクト関連
   String _projectId = '';
-  String _projectTitle = '新しいプロジェクト';
+  String _projectTitle = tr('new_project');
   bool _hasUnsavedChanges = false;
 
   // パフォーマンス最適化のためのキャッシュ
@@ -57,6 +57,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   bool _isInitializing = false;
   bool _isSaving = false;
   bool _isProcessing = false; // 汎用的な非同期処理中フラグ
+  bool _isReloadingStitches = false; // バックグラウンド再読み込み中（オーバーレイは出さない）
 
   // サブスクリプション状態のキャッシュ
   SubscriptionProvider? _subscriptionProvider;
@@ -131,10 +132,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       _logger.e('初期化エラー', error: e, stackTrace: stackTrace);
       _initializeNewProject(); // フォールバック
     } finally {
-      setState(() {
-        _isInitializing = false;
-      });
-      
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+        });
+      }
+
       // 画面表示後に編み目設定を遅延初期化
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (mounted) {
@@ -165,7 +168,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   /// 新規プロジェクトの初期化
   void _initializeNewProject() {
     _projectId = _storageService.generateProjectId();
-    _projectTitle = '新しい編みもの';
+    _projectTitle = tr('new_project');
     _stitchCount = 0;
     _rowNumber = 1;
     _stitchHistory.clear();
@@ -243,12 +246,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
       if (mounted) {
         setState(() {}); // 一度だけ更新
-        _showDialog('編み目設定を基本に戻しました', Colors.orange);
+        _showSnackBar(tr('stitch_settings_reset_done'));
       }
     } catch (e) {
       _logger.e('編み目設定リセットエラー: $e');
       if (mounted) {
-        _showDialog('編み目設定のリセットに失敗しました', Colors.red);
+        _showDialog(tr('stitch_settings_reset_failed'), Colors.red);
       }
     } finally {
       if (mounted) {
@@ -260,12 +263,10 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   }
 
   /// プロジェクト編み目設定の再読み込み（最適化版）
+  /// 画面表示のたびに呼ばれるため、ローディングオーバーレイは表示しない
   Future<void> _reloadProjectCustomStitchesOptimized() async {
-    if (_isProcessing) return;
-
-    setState(() {
-      _isProcessing = true;
-    });
+    if (_isReloadingStitches) return;
+    _isReloadingStitches = true;
 
     try {
       _logger.i('編み目設定再読み込み開始');
@@ -304,14 +305,10 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     } catch (e) {
       _logger.e('編み目設定再読み込みエラー: $e');
       if (mounted) {
-        _showDialog('編み目設定の再読み込みに失敗しました', Colors.red);
+        _showDialog(tr('stitch_settings_reload_failed'), Colors.red);
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
+      _isReloadingStitches = false;
     }
   }
 
@@ -350,44 +347,23 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
               .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
               .length;
         } else {
-          _rowNumber = 0;
+          _rowNumber = 1;
           _stitchCount = 0;
         }
+
+        _hasUnsavedChanges = true;
       });
-
-      _hasUnsavedChanges = true;
-
-      // 段削除後の追加のUI更新を確実に実行
-      if (mounted) {
-        // 強制的に再ビルドを促す
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) {
-            // 段削除後の編み目数を再計算
-            if (_stitchHistory.isNotEmpty) {
-              _stitchCount = _stitchHistory
-                  .where((stitch) => stitch['row'] == _rowNumber && stitch['position'] != 0)
-                  .length;
-            } else {
-              _stitchCount = 0;
-            }
-            
-            setState(() {});
-            // 段削除後の状態を確実に更新
-            _logger.d('段削除後の状態更新: 段数=$_rowNumber, 編み目数=$_stitchCount');
-          }
-        });
-      }
 
       // 成功通知
       if (mounted) {
-        _showDialog('$rowNumber段目を削除しました', Colors.orange);
+        _showSnackBar(tr('row_deleted', namedArgs: {'row': '$rowNumber'}));
       }
 
       _logger.i('段削除完了: $rowNumber段目');
     } catch (e, stackTrace) {
       _logger.e('段削除エラー', error: e, stackTrace: stackTrace);
       if (mounted) {
-        _showDialog('段の削除に失敗しました', Colors.red);
+        _showDialog(tr('row_delete_failed'), Colors.red);
       }
     } finally {
       _isRemovingRow = false;
@@ -498,27 +474,46 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       final isPremium = _subscriptionProvider?.isPremium ?? false;
       final success = await _storageService.saveProject(project, isPremium: isPremium);
 
+      if (!mounted) return success;
+
       if (success) {
         setState(() {
           _hasUnsavedChanges = false;
         });
-        _showDialog('保存完了', Colors.green);
+        _showSnackBar(tr('save_complete'));
         return true;
       } else {
         if (!isPremium) {
-          _showDialog('保存制限に達しました', Colors.red);
+          _showDialog(tr('save_limit_reached'), Colors.red);
         }
         return false;
       }
     } catch (e) {
       _logger.e('保存エラー: $e');
-      _showDialog('保存に失敗しました', Colors.red);
+      _showDialog(tr('save_failed'), Colors.red);
       return false;
     } finally {
-      setState(() {
-        _isSaving = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
     }
+  }
+
+  /// 一時的な通知（成功・情報）用のスナックバー表示ヘルパー
+  /// 操作を妨げるモーダルダイアログの代わりに使用する
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   /// ダイアログ表示のヘルパー
@@ -532,7 +527,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: Text(tr('ok')),
             ),
           ],
         ),
@@ -692,20 +687,24 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
   /// 現在の段数取得
   int _getCurrentRow() {
-    if (_stitchHistory.isEmpty) return 0;
+    if (_stitchHistory.isEmpty) return 1;
     try {
       return _stitchHistory.last['row'] as int;
     } catch (e) {
       _logger.e('現在段数取得エラー: $e');
-      return 0;
+      return 1;
     }
   }
 
-  /// 現在の編み目数取得
+  /// 現在の段の編み目数取得
   int _getCurrentStitchCount() {
     if (_stitchHistory.isEmpty) return 0;
     try {
-      return _stitchHistory.where((stitch) => stitch['position'] != 0).length;
+      final currentRow = _getCurrentRow();
+      return _stitchHistory
+          .where((stitch) =>
+              stitch['row'] == currentRow && stitch['position'] != 0)
+          .length;
     } catch (e) {
       _logger.e('現在編み目数取得エラー: $e');
       return 0;
@@ -722,12 +721,17 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       request: const AdRequest(),
       rewardedAdLoadCallback: RewardedAdLoadCallback(
         onAdLoaded: (ad) {
+          if (!mounted) {
+            ad.dispose();
+            return;
+          }
           setState(() {
             _rewardedAd = ad;
             _isRewardedAdLoaded = true;
           });
         },
         onAdFailedToLoad: (error) {
+          if (!mounted) return;
           setState(() {
             _rewardedAd = null;
             _isRewardedAdLoaded = false;
@@ -747,12 +751,19 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
       request: const AdRequest(),
       listener: BannerAdListener(
         onAdLoaded: (ad) {
+          if (!mounted) {
+            ad.dispose();
+            return;
+          }
           setState(() {
             _isBannerAdLoaded = true;
             _adWidget = AdWidget(ad: ad as BannerAd);
           });
         },
         onAdFailedToLoad: (ad, error) {
+          ad.dispose();
+          _bannerAd = null;
+          if (!mounted) return;
           setState(() {
             _isBannerAdLoaded = false;
           });
@@ -766,14 +777,16 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    // 購読状態の変化（購入・解約）を監視して即時反映する
+    // （watchしないとバナー広告の非表示化やプレミアム解約検知が次の画面遷移まで遅れる）
+    _subscriptionProvider = context.watch<SubscriptionProvider>();
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (bool didPop, dynamic result) async {
         if (!didPop) {
-          final shouldPop = await _showSaveDialogOptimized();
-          if (shouldPop && context.mounted) {
-            Navigator.of(context).pop();
-          }
+          // AppBarの戻るボタンと同じ保存確認フローを通す
+          await _handleBackButtonOptimized();
         }
       },
       child: Stack(
@@ -819,16 +832,18 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
                         const SizedBox(height: 24),
                         Text(
                           _isSaving
-                              ? '保存中...'
+                              ? tr('saving')
                               : _isRemovingRow
-                                  ? '削除中...'
+                                  ? tr('deleting')
                                   : _isProcessing
-                                      ? '処理中...'
-                                      : '読み込み中...',
-                          style: const TextStyle(
+                                      ? tr('processing')
+                                      : tr('loading'),
+                          style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF333333),
+                            color: isDarkMode
+                                ? Colors.white
+                                : const Color(0xFF333333),
                           ),
                         ),
                       ],
@@ -853,7 +868,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
             stitchHistory: _stitchHistory,
             currentStitches: _getCurrentStitchesOptimized(),
             onRowTap: (rowNumber) {
-              _showDialog('$rowNumber段目に移動しました', const Color(0xFFAD1457));
+              _showSnackBar(tr('moved_to_row', namedArgs: {'row': '$rowNumber'}));
             },
             onRowCompleted: (rowNumber) {
               // 段完成時の処理
@@ -927,7 +942,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
             stitchHistory: _stitchHistory,
             currentStitches: _getCurrentStitchesOptimized(),
             onRowTap: (rowNumber) {
-              _showDialog('$rowNumber段目に移動しました', const Color(0xFFAD1457));
+              _showSnackBar(tr('moved_to_row', namedArgs: {'row': '$rowNumber'}));
             },
             onRowCompleted: (rowNumber) {
               // 段完成時の処理
@@ -1067,7 +1082,7 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     } catch (e) {
       _logger.e('プロジェクト編み目設定更新エラー: $e');
       if (mounted) {
-        _showDialog('編み目設定の更新に失敗しました', Colors.red);
+        _showDialog(tr('stitch_settings_update_failed'), Colors.red);
       }
     } finally {
       if (mounted) {
@@ -1092,14 +1107,15 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
 
     final result = await _showSaveDialogOptimized();
     if (result == true) {
-      if (_projectTitle == '新しい編みもの' || _projectTitle.isEmpty) {
+      if (_projectTitle == tr('new_project') || _projectTitle.isEmpty) {
         final titleResult = await _editProjectTitle();
         if (titleResult == null) return;
       }
 
       final saveSuccess = await _saveProjectOptimized();
       if (saveSuccess) {
-        _showRewardedAdAfterSave();
+        // ダイアログを閉じてから画面遷移する（遷移が先だとダイアログが即座に消える）
+        await _showRewardedAdAfterSave();
         if (mounted) {
           navigator.pushAndRemoveUntil(
             MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -1148,12 +1164,12 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
     return await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(tr('edit_stitch_buttons')),
+        title: Text(tr('edit_project_title')),
         content: TextField(
           controller: controller,
           decoration: InputDecoration(
-            labelText: tr('edit_stitch_buttons'),
-            hintText: '例: マフラー',
+            labelText: tr('project_title'),
+            hintText: tr('project_title_hint'),
           ),
           autofocus: true,
         ),
@@ -1204,11 +1220,11 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen> {
   }
 
   /// 保存後の報酬広告表示
-  void _showRewardedAdAfterSave() {
+  Future<void> _showRewardedAdAfterSave() async {
     final isPremium = _subscriptionProvider?.isPremium ?? false;
-    if (isPremium) return;
+    if (isPremium || !mounted) return;
 
-    showDialog(
+    await showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(tr('watch_ad_title')),

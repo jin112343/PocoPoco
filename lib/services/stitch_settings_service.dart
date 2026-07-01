@@ -102,45 +102,55 @@ class StitchSettingsService {
       }
 
       final stitchesJson = jsonDecode(stitchesJsonString) as List;
-      final stitches = stitchesJson.map((stitchJson) {
-        final stitchData = Map<String, dynamic>.from(stitchJson);
-        if (stitchData['type'] == 'enum') {
-          final stitchName = stitchData['name'] as String;
-          final stitchNameEn = stitchData['nameEn'] as String? ?? stitchName;
-          try {
-            return CrochetStitch.values.firstWhere(
-              (stitch) => stitch.nameEn == stitchNameEn || stitch.nameJa == stitchName,
+      // 要素単位でパースし、壊れた要素だけスキップする
+      // （全体をcatchで潰すと1件の不正データでユーザー設定全体が消えたように見える）
+      final stitches = <dynamic>[];
+      for (final stitchJson in stitchesJson) {
+        try {
+          final stitchData = Map<String, dynamic>.from(stitchJson);
+          if (stitchData['type'] == 'enum') {
+            final stitchName = stitchData['name'] as String;
+            final stitchNameEn = stitchData['nameEn'] as String? ?? stitchName;
+            stitches.add(CrochetStitch.values.firstWhere(
+              (stitch) =>
+                  stitch.nameEn == stitchNameEn || stitch.nameJa == stitchName,
               orElse: () => CrochetStitch.singleCrochet,
-            );
-          } catch (e) {
-            return CrochetStitch.singleCrochet;
+            ));
+          } else if (stitchData['type'] == 'custom') {
+            // imagePathが空文字列の場合はnullとして扱う
+            final imagePathRaw = stitchData['imagePath'] as String?;
+            var imagePath = (imagePathRaw == null || imagePathRaw.isEmpty)
+                ? null
+                : imagePathRaw;
+
+            final nameJa =
+                stitchData['nameJa'] as String? ?? stitchData['name'] as String;
+            // imagePathがnullの場合、編み目名から画像パスを復元
+            imagePath ??= CustomStitch.lookupImagePath(nameJa);
+
+            stitches.add(CustomStitch(
+              nameJa: nameJa,
+              nameEn: stitchData['nameEn'] as String? ??
+                  stitchData['name'] as String,
+              imagePath: imagePath,
+              // colorが欠落していてもデフォルト色で復元する
+              color: Color(stitchData['color'] as int? ?? 0xFFE91E63),
+              isOval: stitchData['isOval'] as bool? ?? false,
+            ));
+          } else {
+            stitches.add(CrochetStitch.singleCrochet); // デフォルト
           }
-        } else if (stitchData['type'] == 'custom') {
-          // imagePathが空文字列の場合はnullとして扱う
-          final imagePathRaw = stitchData['imagePath'] as String?;
-          var imagePath = (imagePathRaw == null || imagePathRaw.isEmpty)
-              ? null
-              : imagePathRaw;
-
-          final nameJa =
-              stitchData['nameJa'] as String? ?? stitchData['name'] as String;
-          // imagePathがnullの場合、編み目名から画像パスを復元
-          imagePath ??= CustomStitch.lookupImagePath(nameJa);
-
-          return CustomStitch(
-            nameJa: nameJa,
-            nameEn:
-                stitchData['nameEn'] as String? ?? stitchData['name'] as String,
-            imagePath: imagePath,
-            color: Color(stitchData['color'] as int),
-            isOval: stitchData['isOval'] as bool? ?? false,
-          );
+        } catch (e) {
+          _logger.w('getGlobalStitches: 編み目1件の解析に失敗、スキップします: $e');
         }
-        return CrochetStitch.singleCrochet; // デフォルト
-      }).toList();
+      }
 
+      if (stitches.isEmpty) {
+        return getDefaultStitches();
+      }
       return stitches;
     } catch (e) {
+      _logger.e('getGlobalStitches: 編み目設定の読み込みに失敗: $e');
       return getDefaultStitches();
     }
   }

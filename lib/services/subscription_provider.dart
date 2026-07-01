@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -5,6 +6,11 @@ import 'package:logger/logger.dart';
 
 class SubscriptionProvider extends ChangeNotifier {
   final Logger logger = Logger();
+  StreamSubscription<List<PurchaseDetails>>? _storeSubscription;
+
+  // ストアの商品ID
+  static const String yearlyProductId = 'yearly_sub';
+  static const Set<String> monthlyProductIds = {'monthly_sub', 'monthly-sub'};
   bool _isPremium = false;
   String? _activeSubscriptionId;
   DateTime? _subscriptionExpiryDate;
@@ -37,17 +43,19 @@ class SubscriptionProvider extends ChangeNotifier {
     return DateTime.now().isBefore(_trialEndDate!);
   }
 
-  // トライアル期間の残り日数を取得
+  // トライアル期間の残り日数を取得（切り上げ: 残り23時間でも「1日」と表示）
   int get trialDaysRemaining {
     if (!_isInTrialPeriod || _trialEndDate == null) {
       return 0;
     }
-    final remaining = _trialEndDate!.difference(DateTime.now()).inDays;
+    final remainingHours = _trialEndDate!.difference(DateTime.now()).inHours;
+    final remaining = (remainingHours / 24).ceil();
     return remaining > 0 ? remaining : 0;
   }
 
   // サブスクリプション状態をセット
-  void setPremium(bool value,
+  // 呼び出し側がawaitできるようFutureを返す（async voidだと永続化失敗を検知できない）
+  Future<void> setPremium(bool value,
       {String? subscriptionId, DateTime? expiryDate}) async {
     _isPremium = value;
     _activeSubscriptionId = subscriptionId;
@@ -77,6 +85,79 @@ class SubscriptionProvider extends ChangeNotifier {
     }
   }
 
+  /// ストアからの購入イベント（更新・復元・保留中のトランザクション）を監視し、
+  /// 課金状態をストア基準で再同期する。アプリ起動時に一度だけ呼び出す。
+  /// サブスクリプションの自動更新分はアプリ起動時にトランザクションとして
+  /// 届くため、これにより有効期限がローカル計算のまま失効する問題を軽減する。
+  void startStoreSync() {
+    if (_storeSubscription != null) return;
+
+    try {
+      _storeSubscription = InAppPurchase.instance.purchaseStream.listen(
+        (purchases) async {
+          for (final purchase in purchases) {
+            await _handleStorePurchase(purchase);
+          }
+        },
+        onError: (Object e) {
+          logger.e('SubscriptionProvider.startStoreSync: 購入ストリームエラー', error: e);
+        },
+      );
+      logger.i('SubscriptionProvider: ストア購入イベントの監視を開始しました');
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider.startStoreSync: 監視開始に失敗',
+          error: e, stackTrace: stackTrace);
+    }
+  }
+
+  Future<void> _handleStorePurchase(PurchaseDetails purchase) async {
+    try {
+      if (purchase.status == PurchaseStatus.purchased ||
+          purchase.status == PurchaseStatus.restored) {
+        DateTime? newExpiry;
+        if (purchase.productID == yearlyProductId) {
+          newExpiry = DateTime.now().add(const Duration(days: 365));
+        } else if (monthlyProductIds.contains(purchase.productID)) {
+          newExpiry = DateTime.now().add(const Duration(days: 30));
+        }
+
+        if (newExpiry != null) {
+          // 有効期限は延長方向にのみ更新する（既存の長い期限を短縮しない）
+          final currentExpiry = _subscriptionExpiryDate;
+          if (!_isPremium ||
+              currentExpiry == null ||
+              newExpiry.isAfter(currentExpiry)) {
+            logger.i(
+                'SubscriptionProvider: ストアのトランザクションからプレミアムを再同期 (${purchase.productID})');
+            await setPremium(
+              true,
+              subscriptionId: purchase.productID,
+              expiryDate: newExpiry,
+            );
+          }
+        }
+      }
+
+      if (purchase.pendingCompletePurchase) {
+        try {
+          await InAppPurchase.instance.completePurchase(purchase);
+        } catch (e) {
+          // 他のリスナー（アップグレード画面）が先に完了させた場合など
+          logger.w('SubscriptionProvider: completePurchaseに失敗: $e');
+        }
+      }
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider._handleStorePurchase: 購入イベント処理エラー',
+          error: e, stackTrace: stackTrace);
+    }
+  }
+
+  @override
+  void dispose() {
+    _storeSubscription?.cancel();
+    super.dispose();
+  }
+
   // サブスクリプション状態の永続化・復元
   Future<void> loadStatus() async {
     try {
@@ -104,6 +185,10 @@ class SubscriptionProvider extends ChangeNotifier {
       _isPremium = false;
       _activeSubscriptionId = null;
       _subscriptionExpiryDate = null;
+      // トライアル系フィールドも初期化して不整合状態を残さない
+      _isInTrialPeriod = false;
+      _trialStartDate = null;
+      _trialEndDate = null;
       notifyListeners();
     }
   }
@@ -181,14 +266,18 @@ class SubscriptionProvider extends ChangeNotifier {
   }
 
   // サブスクリプションの有効期限を更新
-  void updateSubscriptionExpiry(DateTime expiryDate) {
+  Future<void> updateSubscriptionExpiry(DateTime expiryDate) async {
     _subscriptionExpiryDate = expiryDate;
     notifyListeners();
 
     // 永続化
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.setString(_expiryDateKey, expiryDate.toIso8601String());
-    });
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_expiryDateKey, expiryDate.toIso8601String());
+    } catch (e, stackTrace) {
+      logger.e('SubscriptionProvider.updateSubscriptionExpiry: 有効期限の永続化エラー',
+          error: e, stackTrace: stackTrace);
+    }
   }
 
   // サブスクリプションが有効かどうかをチェック
@@ -206,7 +295,13 @@ class SubscriptionProvider extends ChangeNotifier {
   }
 
   // 無料トライアルを開始（年間プランのみ）
-  Future<void> startFreeTrial() async {
+  // すでにトライアルを使用済みの場合は開始せずfalseを返す
+  Future<bool> startFreeTrial() async {
+    if (_hasUsedTrial) {
+      logger.w('SubscriptionProvider.startFreeTrial: トライアルは使用済みのため開始しません');
+      return false;
+    }
+
     final now = DateTime.now();
     _trialStartDate = now;
     _trialEndDate = now.add(const Duration(days: 3)); // 3日間の無料トライアル
@@ -225,6 +320,7 @@ class SubscriptionProvider extends ChangeNotifier {
       logger.e('SubscriptionProvider.startFreeTrial: 無料トライアル情報の永続化エラー',
           error: e, stackTrace: stackTrace);
     }
+    return true;
   }
 
   // トライアル期間の有効性をチェック
@@ -287,8 +383,9 @@ class SubscriptionProvider extends ChangeNotifier {
             error: e,
             stackTrace: stackTrace);
         // エラーが発生した場合でも、トライアル期間は終了させる
+        // ただし有効な有料サブスクリプションを持つユーザーからプレミアムを剥奪しない
         _isInTrialPeriod = false;
-        _isPremium = false;
+        _isPremium = isSubscriptionValid();
         notifyListeners();
       }
     }

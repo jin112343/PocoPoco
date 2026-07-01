@@ -23,11 +23,11 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
   String _getTypeLabel(FeedbackType type) {
     switch (type) {
       case FeedbackType.bug:
-        return 'バグ報告';
+        return tr('feedback_type_bug');
       case FeedbackType.featureRequest:
-        return '機能改善';
+        return tr('feedback_type_feature');
       case FeedbackType.other:
-        return 'その他';
+        return tr('feedback_type_other');
     }
   }
 
@@ -45,8 +45,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
   Future<void> _submitFeedback() async {
     if (_messageController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('メッセージを入力してください'),
+        SnackBar(
+          content: Text(tr('feedback_enter_message')),
           backgroundColor: Colors.orange,
         ),
       );
@@ -68,17 +68,18 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('ご意見をお送りいただきありがとうございます'),
+          SnackBar(
+            content: Text(tr('feedback_thanks')),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
+      debugPrint('フィードバック送信エラー: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('送信に失敗しました: $e'),
+            content: Text(tr('feedback_send_failed')),
             backgroundColor: Colors.red,
           ),
         );
@@ -109,7 +110,9 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
       backgroundColor: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
       child: Padding(
         padding: const EdgeInsets.all(20),
-        child: Column(
+        // キーボード表示時や横向きの小型端末で縦にあふれないようスクロール可能にする
+        child: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -129,7 +132,7 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             ),
             const SizedBox(height: 16),
             Text(
-              'お問い合わせの種類',
+              tr('feedback_type_label'),
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
@@ -163,7 +166,7 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             ),
             const SizedBox(height: 16),
             Text(
-              'メッセージ',
+              tr('feedback_message_label'),
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w500,
@@ -174,9 +177,10 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             TextField(
               controller: _messageController,
               maxLines: 5,
+              maxLength: 1000,
               style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
               decoration: InputDecoration(
-                hintText: 'ご意見・ご要望をお聞かせください\n※個別対応が必要な場合はメールアドレスをご記載ください',
+                hintText: tr('feedback_hint'),
                 hintStyle: TextStyle(color: isDarkMode ? Colors.grey[500] : null),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -195,7 +199,7 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             ),
             const SizedBox(height: 8),
             Text(
-              '※ 匿名で送信されます',
+              tr('feedback_anonymous_note'),
               style: TextStyle(
                 fontSize: 12,
                 color: isDarkMode ? Colors.grey[400] : Colors.grey,
@@ -208,7 +212,7 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
                 TextButton(
                   onPressed: _isSubmitting ? null : () => Navigator.of(context).pop(),
                   child: Text(
-                    'キャンセル',
+                    tr('cancel'),
                     style: TextStyle(color: isDarkMode ? Colors.grey[400] : null),
                   ),
                 ),
@@ -231,11 +235,12 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                           ),
                         )
-                      : const Text('送信'),
+                      : Text(tr('send')),
                 ),
               ],
             ),
           ],
+          ),
         ),
       ),
     );

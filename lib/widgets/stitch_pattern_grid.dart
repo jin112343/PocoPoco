@@ -89,19 +89,19 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    
+
     // EasyLocalizationが準備完了するまで待つ
     if (!mounted || !context.mounted) {
       return;
     }
-    
+
     try {
       // EasyLocalizationの準備状況をチェック
       final locale = context.locale;
       if (kDebugMode) {
         print('EasyLocalization ready: ${locale.languageCode}');
       }
-      
+
       _checkPremiumStatusChange();
 
       // 依存関係が変更された時（特にlocale変更時）に名前キャッシュをクリアして再描画
@@ -151,7 +151,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     try {
       // 編み目設定が変更された場合はキャッシュをクリア
       _stitchNameCache.clear();
-      
+
       // プロジェクト固有の編み目設定がある場合はそれを使用、なければ基本6つの編み目を使用
       if (widget.projectStitches != null &&
           widget.projectStitches!.isNotEmpty) {
@@ -186,14 +186,14 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   // 編み目設定の内容が変更されたかチェック
   bool _hasStitchesChanged(List<dynamic> newStitches, List<dynamic> oldStitches) {
     if (newStitches.length != oldStitches.length) return true;
-    
+
     for (int i = 0; i < newStitches.length; i++) {
       final newStitch = newStitches[i];
       final oldStitch = oldStitches[i];
-      
+
       // 型が異なる場合は変更あり
       if (newStitch.runtimeType != oldStitch.runtimeType) return true;
-      
+
       // 編み目の名前を比較
       String newName, oldName;
       try {
@@ -203,10 +203,10 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         // 名前取得でエラーが発生した場合は変更ありとみなす
         return true;
       }
-      
+
       if (newName != oldName) return true;
     }
-    
+
     return false;
   }
 
@@ -228,26 +228,21 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     if (_stitchNameCache.containsKey(stitch)) {
       return _stitchNameCache[stitch]!;
     }
-    
+
     try {
       // EasyLocalizationが利用可能になるまで待つ
       if (!mounted || !context.mounted) {
         // コンテキストが利用できない場合はデフォルトで日本語を返す
-        if (stitch is CrochetStitch) {
-          return stitch.nameJa;
-        } else if (stitch is CustomStitch) {
+        if (stitch is StitchDef) {
           return stitch.nameJa;
         }
         return 'Loading...';
       }
-      
+
       String result;
 
-      if (stitch is CrochetStitch) {
+      if (stitch is StitchDef) {
         // getNameメソッドを使用（context.localeを使用）
-        result = stitch.getName(context);
-      } else if (stitch is CustomStitch) {
-        // CustomStitchの場合はgetNameメソッドを使用
         result = stitch.getName(context);
       } else if (stitch is Map<String, String>) {
         try {
@@ -259,31 +254,27 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
       } else {
         result = 'Unknown';
       }
-      
+
       // 結果が空文字列の場合はデフォルト値を返す
       if (result.isEmpty) {
-        if (stitch is CrochetStitch) {
-          result = stitch.nameJa; // 日本語名をフォールバックとして使用
-        } else if (stitch is CustomStitch) {
+        if (stitch is StitchDef) {
           result = stitch.nameJa; // 日本語名をフォールバックとして使用
         } else {
           result = 'Unknown';
         }
       }
-      
+
       // キャッシュに保存
       _stitchNameCache[stitch] = result;
-      
+
       return result;
     } catch (e) {
       // エラーが発生した場合のフォールバック（日本語優先）
       String fallbackName = 'Unknown';
-      if (stitch is CrochetStitch) {
-        fallbackName = stitch.nameJa;
-      } else if (stitch is CustomStitch) {
+      if (stitch is StitchDef) {
         fallbackName = stitch.nameJa;
       }
-      
+
       // フォールバック名もキャッシュに保存
       _stitchNameCache[stitch] = fallbackName;
       return fallbackName;
@@ -298,6 +289,39 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   // 横向き時のアスペクト比を取得
   double _getChildAspectRatio() {
     return widget.isLandscape ? 2.0 : 1.3;
+  }
+
+  /// 編み目カスタマイズ画面を開く（プレミアム未加入の場合はアップグレード画面へ）
+  Future<void> _openCustomization() async {
+    final isPremium = context.read<SubscriptionProvider>().isPremium;
+
+    if (!isPremium) {
+      // 無料プランの場合はアップグレード画面に遷移
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => const UpgradeScreen(),
+        ),
+      );
+      return;
+    }
+
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => StitchCustomizationScreen(
+          projectStitches: widget.projectStitches,
+          onProjectStitchesChanged: widget.onProjectStitchesChanged,
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      // 編み目設定が変更された場合
+      // 少し待ってから再読み込み（保存処理の完了を待つ）
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // 編み目カスタマイズ画面から戻ってきたら再読み込み
+      await _loadStitches();
+    }
   }
 
   @override
@@ -318,7 +342,7 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
           children: [
             Flexible(
               child: Text(
-                '編み方を選択（タップで追加）',
+                tr('select_stitch_hint'),
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
@@ -330,42 +354,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
             // 編み目カスタマイズボタン
             IconButton(
               icon: const Icon(Icons.edit, size: 20),
-              onPressed: () async {
-                final isPremium =
-                    context.read<SubscriptionProvider>().isPremium;
-
-                if (isPremium) {
-                  final result = await Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => StitchCustomizationScreen(
-                        projectStitches: widget.projectStitches,
-                        onProjectStitchesChanged:
-                            widget.onProjectStitchesChanged,
-                      ),
-                    ),
-                  );
-
-                  if (result == true) {
-                    // 編み目設定が変更された場合
-                    // 少し待ってから再読み込み（保存処理の完了を待つ）
-                    await Future.delayed(const Duration(milliseconds: 500));
-
-                    // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                    await _loadStitches();
-
-                    // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
-                    // widget.onStitchSettingsChanged?.call();
-                  }
-                } else {
-                  // 無料プランの場合はアップグレード画面に遷移
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const UpgradeScreen(),
-                    ),
-                  );
-                }
-              },
-              tooltip: '編み目をカスタマイズ',
+              onPressed: _openCustomization,
+              tooltip: tr('customize_stitches_tooltip'),
             ),
           ],
         ),
@@ -385,274 +375,129 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
               ),
             ],
           ),
-          child: Column(
+          // 7つ以上のボタンがある場合はスクロール可能にする
+          child: _stitches.length > 7
+              ? SizedBox(
+                  height:
+                      _calculateGridHeight(_stitches.length, crossAxisCount),
+                  child: _buildStitchGrid(
+                    crossAxisCount,
+                    childAspectRatio,
+                    scrollable: true,
+                  ),
+                )
+              : _buildStitchGrid(
+                  crossAxisCount,
+                  childAspectRatio,
+                  scrollable: false,
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStitchGrid(
+    int crossAxisCount,
+    double childAspectRatio, {
+    required bool scrollable,
+  }) {
+    return GridView.builder(
+      shrinkWrap: !scrollable,
+      physics: scrollable ? null : const NeverScrollableScrollPhysics(),
+      scrollDirection: Axis.vertical,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount,
+        childAspectRatio: childAspectRatio,
+        crossAxisSpacing: 10,
+        mainAxisSpacing: 10,
+      ),
+      itemCount: _stitches.length,
+      itemBuilder: (context, index) =>
+          _buildStitchButton(_stitches[index], index),
+    );
+  }
+
+  Widget _buildStitchButton(dynamic stitch, int index) {
+    final buttonColor = _getStitchColorByIndex(index);
+    final stitchName = _getStitchName(stitch);
+    final fallbackInitial = stitchName.isNotEmpty ? stitchName.substring(0, 1) : '?';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          widget.onStitchAdded(stitch);
+        },
+        onLongPress: _openCustomization,
+        child: Container(
+          decoration: BoxDecoration(
+            color: buttonColor.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: buttonColor,
+              width: 2,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // 7つ以上のボタンがある場合はスクロール可能にする
-              _stitches.length > 7
-                  ? SizedBox(
-                      height: _calculateGridHeight(_stitches.length, crossAxisCount),
-                      child: GridView.builder(
-                        gridDelegate:
-                            SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: crossAxisCount,
-                          childAspectRatio: childAspectRatio,
-                          crossAxisSpacing: 10,
-                          mainAxisSpacing: 10,
-                        ),
-                        itemCount: _stitches.length,
-                        scrollDirection: Axis.vertical,
-                        itemBuilder: (context, index) {
-                          final stitch = _stitches[index];
-                          final buttonColor = _getStitchColorByIndex(index);
-
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(10),
-                              onTap: () {
-                                widget.onStitchAdded(stitch);
-                              },
-                              onLongPress: () async {
-                                final result = await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        StitchCustomizationScreen(
-                                      projectStitches: widget.projectStitches,
-                                      onProjectStitchesChanged:
-                                          widget.onProjectStitchesChanged,
-                                    ),
-                                  ),
-                                );
-
-                                if (result == true) {
-                                  // 編み目設定が変更された場合
-                                  // 少し待ってから再読み込み（保存処理の完了を待つ）
-                                  await Future.delayed(
-                                      const Duration(milliseconds: 500));
-
-                                  // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                                  await _loadStitches();
-
-                                  // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
-                                  // widget.onStitchSettingsChanged?.call();
-                                }
-                              },
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: buttonColor.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                    color: buttonColor,
-                                    width: 2,
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Container(
-                                      width: 36,
-                                      height: 36,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Center(
-                                        child: stitch.imagePath != null
-                                            ? Padding(
-                                                padding: const EdgeInsets.all(3),
-                                                child: Image.asset(
-                                                  stitch.imagePath!,
-                                                  width: 26,
-                                                  height: 26,
-                                                  fit: BoxFit.contain,
-                                                  errorBuilder: (context, error, stackTrace) {
-                                                    return Text(
-                                                      _getStitchName(stitch).isNotEmpty
-                                                          ? _getStitchName(stitch).substring(0, 1)
-                                                          : '?',
-                                                      style: TextStyle(
-                                                        fontSize: 18,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: buttonColor,
-                                                      ),
-                                                    );
-                                                  },
-                                                ),
-                                              )
-                                            : Text(
-                                                _getStitchName(stitch).isNotEmpty
-                                                    ? _getStitchName(stitch).substring(0, 1)
-                                                    : '?',
-                                                style: TextStyle(
-                                                  fontSize: 18,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: buttonColor,
-                                                ),
-                                              ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Flexible(
-                                      child: Text(
-                                        _getStitchName(stitch),
-                                        style: TextStyle(
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: buttonColor,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    )
-                  : GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      scrollDirection: Axis.vertical,
-                      gridDelegate:
-                          SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        childAspectRatio: childAspectRatio,
-                        crossAxisSpacing: 10,
-                        mainAxisSpacing: 10,
-                      ),
-                      itemCount: _stitches.length,
-                      itemBuilder: (context, index) {
-                        final stitch = _stitches[index];
-                        final buttonColor = _getStitchColorByIndex(index);
-
-                        return Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(10),
-                            onTap: () {
-                              widget.onStitchAdded(stitch);
-                            },
-                            onLongPress: () async {
-                              final isPremium = context
-                                  .read<SubscriptionProvider>()
-                                  .isPremium;
-
-                              if (isPremium) {
-                                final result = await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        StitchCustomizationScreen(
-                                      projectStitches: widget.projectStitches,
-                                      onProjectStitchesChanged:
-                                          widget.onProjectStitchesChanged,
-                                    ),
-                                  ),
-                                );
-
-                                if (result == true) {
-                                  // 編み目設定が変更された場合
-                                  // 少し待ってから再読み込み（保存処理の完了を待つ）
-                                  await Future.delayed(
-                                      const Duration(milliseconds: 500));
-
-                                  // 編み目カスタマイズ画面から戻ってきたら再読み込み
-                                  await _loadStitches();
-
-                                  // 編み目設定が変更されたことを通知（緑のポップアップを防ぐため削除）
-                                  // widget.onStitchSettingsChanged?.call();
-                                }
-                              } else {
-                                // 無料プランの場合はアップグレード画面に遷移
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (context) => const UpgradeScreen(),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: buttonColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Center(
+                  child: stitch.imagePath != null
+                      ? Padding(
+                          padding: const EdgeInsets.all(3),
+                          child: Image.asset(
+                            stitch.imagePath!,
+                            width: 26,
+                            height: 26,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Text(
+                                fallbackInitial,
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
                                   color: buttonColor,
-                                  width: 2,
                                 ),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Container(
-                                    width: 36,
-                                    height: 36,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Center(
-                                      child: stitch.imagePath != null
-                                        ? Padding(
-                                            padding: const EdgeInsets.all(3),
-                                            child: Image.asset(
-                                              stitch.imagePath!,
-                                              width: 26,
-                                              height: 26,
-                                              fit: BoxFit.contain,
-                                              errorBuilder: (context, error, stackTrace) {
-                                                return Text(
-                                                  _getStitchName(stitch).isNotEmpty
-                                                      ? _getStitchName(stitch).substring(0, 1)
-                                                      : '?',
-                                                  style: TextStyle(
-                                                    fontSize: 18,
-                                                    fontWeight: FontWeight.bold,
-                                                    color: buttonColor,
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                          )
-                                        : Text(
-                                            _getStitchName(stitch).isNotEmpty
-                                                ? _getStitchName(stitch).substring(0, 1)
-                                                : '?',
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.bold,
-                                              color: buttonColor,
-                                            ),
-                                          ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      _getStitchName(stitch),
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: buttonColor,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                              );
+                            },
                           ),
-                        );
-                      },
-                    ),
+                        )
+                      : Text(
+                          fallbackInitial,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: buttonColor,
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  stitchName,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: buttonColor,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 

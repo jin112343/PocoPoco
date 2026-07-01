@@ -37,11 +37,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   }
 
   @override
-  void didUpdateWidget(StitchCustomizationScreen oldWidget) {
-    super.didUpdateWidget(oldWidget);
-  }
-
-  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _checkPremiumStatusChange();
@@ -73,7 +68,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: Text(tr('ok')),
             ),
           ],
         ),
@@ -97,12 +92,12 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       });
 
       if (mounted) {
-        _showDialog('プレミアム解約により基本編み目に戻しました');
+        _showDialog(tr('premium_canceled_reset_stitches'));
       }
     } catch (e) {
       debugPrint('編み目のリセットに失敗: $e');
       if (mounted) {
-        _showDialog('編み目のリセットに失敗しました');
+        _showDialog(tr('stitch_reset_failed'));
       }
     } finally {
       if (mounted) {
@@ -124,11 +119,13 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
         _stitches = List.from(globalStitches);
       }
 
+      if (!mounted) return;
       setState(() {
         // setStateでUIを更新
       });
     } catch (e) {
       debugPrint('編み目の読み込みに失敗: $e');
+      if (!mounted) return;
       setState(() {
         _stitches = StitchSettingsService.getDefaultStitches();
       });
@@ -366,7 +363,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
             } catch (e) {
               debugPrint('編み目設定の保存に失敗: $e');
               if (mounted) {
-                _showDialog('編み目設定の保存に失敗しました');
+                _showDialog(tr('stitch_settings_save_failed'));
               }
             } finally {
               if (mounted) {
@@ -493,7 +490,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                 } catch (e) {
                   debugPrint('並び替え保存エラー: $e');
                   if (mounted) {
-                    _showDialog('並び替えの保存に失敗しました');
+                    _showDialog(tr('reorder_save_failed'));
                   }
                 } finally {
                   if (mounted) {
@@ -529,7 +526,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                       ),
                       const SizedBox(height: 24),
                       Text(
-                        '処理中...',
+                        tr('processing'),
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
@@ -559,7 +556,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     } catch (e) {
       debugPrint('削除保存エラー: $e');
       if (mounted) {
-        _showDialog('削除の保存に失敗しました');
+        _showDialog(tr('delete_save_failed'));
       }
     } finally {
       if (mounted) {
@@ -570,32 +567,23 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     }
   }
 
+  /// 編み目設定を保存する。失敗時は例外を伝播させ、呼び出し側でエラー表示する
+  /// （ここで握りつぶすと呼び出し側の「保存に失敗しました」表示が機能しない）
   Future<void> _saveGlobalStitches() async {
-    try {
-      // プロジェクト固有の編み目設定がある場合は、プロジェクト固有の設定として保存
-      if (widget.projectStitches != null) {
-        // プロジェクト固有の編み目設定を更新
-        if (widget.onProjectStitchesChanged != null) {
-          try {
-            await widget.onProjectStitchesChanged!(_stitches);
-          } catch (e) {
-            debugPrint('プロジェクト編み目設定の保存に失敗: $e');
-          }
-        }
-      } else {
-        // グローバル設定として保存
-        await StitchSettingsService.saveGlobalStitches(_stitches);
+    // プロジェクト固有の編み目設定がある場合は、プロジェクト固有の設定として保存
+    if (widget.projectStitches != null) {
+      // プロジェクト固有の編み目設定を更新
+      if (widget.onProjectStitchesChanged != null) {
+        await widget.onProjectStitchesChanged!(_stitches);
       }
+    } else {
+      // グローバル設定として保存
+      await StitchSettingsService.saveGlobalStitches(_stitches);
+    }
 
-      // 保存成功後にUIを強制的に更新
-      if (mounted) {
-        setState(() {});
-      }
-
-      // 少し待ってから再度確認
-      await Future.delayed(const Duration(milliseconds: 200));
-    } catch (e) {
-      debugPrint('編み目設定の保存に失敗: $e');
+    // 保存成功後にUIを更新
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -646,7 +634,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                   // 基本編み目セクション
                   if (availableBasicStitches.isNotEmpty) ...[
                     Text(
-                      '基本編み目',
+                      tr('basic_stitch'),
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -882,11 +870,11 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
                 // 利用可能な編み目がない場合
                 if (availableBasicStitches.isEmpty &&
                     availablePremiumStitches.isEmpty) ...[
-                  const Expanded(
+                  Expanded(
                     child: Center(
                       child: Text(
-                        '追加できる編み目がありません',
-                        style: TextStyle(
+                        tr('no_stitches_available'),
+                        style: const TextStyle(
                           fontSize: 16,
                           color: Colors.grey,
                         ),
@@ -903,12 +891,19 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
               child: Text(tr('cancel')),
             ),
             ElevatedButton(
-              onPressed: () {
-                _addSelectedStitches();
-                Navigator.of(context).pop();
+              onPressed: () async {
+                final navigator = Navigator.of(context);
+                // 追加に成功した場合のみダイアログを閉じる
+                // （先にpopすると上限警告ダイアログの方が閉じられてしまう）
+                final success = await _addSelectedStitches();
+                if (success && context.mounted) {
+                  navigator.pop();
+                }
               },
-              child: Text(
-                  '追加 (${_selectedBasicStitches.length + _selectedPremiumStitches.length})'),
+              child: Text(tr('add_with_count', namedArgs: {
+                'count':
+                    '${_selectedBasicStitches.length + _selectedPremiumStitches.length}'
+              })),
             ),
           ],
         );
@@ -917,17 +912,17 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     );
   }
 
-  void _addSelectedStitches() async {
+  Future<bool> _addSelectedStitches() async {
     // 基本編み目の制限チェック
     final currentBasicStitches =
         _stitches.whereType<CrochetStitch>().length;
     final newBasicStitches = _selectedBasicStitches.length;
     if (currentBasicStitches + newBasicStitches > 6) {
-      _showDialog('基本編み目は6つまでしか追加できません');
-      return;
+      _showDialog(tr('basic_stitch_limit'));
+      return false;
     }
 
-    if (_isProcessing) return;
+    if (_isProcessing) return false;
 
     setState(() {
       _isProcessing = true;
@@ -950,11 +945,13 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       }
 
       await _saveGlobalStitches();
+      return true;
     } catch (e) {
       debugPrint('編み目追加エラー: $e');
       if (mounted) {
-        _showDialog('編み目の追加に失敗しました');
+        _showDialog(tr('stitch_add_failed'));
       }
+      return false;
     } finally {
       if (mounted) {
         setState(() {

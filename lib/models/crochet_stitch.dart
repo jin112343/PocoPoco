@@ -1,7 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 
-enum CrochetStitch {
+/// 編み目定義の共通インターフェース
+/// 基本編み目（CrochetStitch enum）とカスタム編み目（CustomStitch）の
+/// 両方が実装する。型チェックの重複（is CrochetStitch || is CustomStitch）を
+/// 避けるために使用する。
+abstract interface class StitchDef {
+  String get nameJa;
+  String get nameEn;
+  String? get imagePath;
+  Color get color;
+  bool get isOval;
+  String getName(BuildContext context);
+}
+
+enum CrochetStitch implements StitchDef {
   chain('鎖編み', 'Chain Stitch', 'assets/images/鎖編み.png', Colors.blue, true),
   slipStitch(
       '引き抜き編み', 'Slip Stitch', 'assets/images/引き抜き編み.png', Colors.grey, true),
@@ -16,13 +29,19 @@ enum CrochetStitch {
 
   const CrochetStitch(
       this.nameJa, this.nameEn, this.imagePath, this.color, this.isOval);
+  @override
   final String nameJa;
+  @override
   final String nameEn;
+  @override
   final String? imagePath;
+  @override
   final Color color;
+  @override
   final bool isOval;
 
   // BuildContextを使った名前取得（推奨）
+  @override
   String getName(BuildContext context) {
     try {
       final locale = context.locale.languageCode;
@@ -38,11 +57,16 @@ enum CrochetStitch {
 }
 
 // カスタム編み目を管理するためのクラス
-class CustomStitch {
+class CustomStitch implements StitchDef {
+  @override
   final String nameJa;
+  @override
   final String nameEn;
+  @override
   final String? imagePath;
+  @override
   final Color color;
+  @override
   final bool isOval;
 
   // 編み目名から画像パスを復元するためのマッピング
@@ -96,6 +120,7 @@ class CustomStitch {
     this.isOval = false,
   });
 
+  @override
   String getName(BuildContext context) {
     final locale = context.locale.languageCode;
     return locale == 'ja' ? nameJa : nameEn;

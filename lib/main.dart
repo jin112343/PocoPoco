@@ -18,9 +18,10 @@ void main() async {
   await EasyLocalization.ensureInitialized();
 
   // iPadの場合は全方向を許可、iPhoneの場合は縦のみ
-  if (Platform.isIOS) {
+  final views = WidgetsBinding.instance.platformDispatcher.views;
+  if (Platform.isIOS && views.isNotEmpty) {
     // デバイスの画面サイズでiPadかどうかを判定
-    final data = WidgetsBinding.instance.platformDispatcher.views.first;
+    final data = views.first;
     final size = data.physicalSize / data.devicePixelRatio;
     final shortestSide = size.shortestSide;
 
@@ -64,13 +65,8 @@ void main() async {
     debugPrint('SharedPreferences initialization failed: $e');
   }
 
-  try {
-    // Google Mobile Adsの初期化
-    await MobileAds.instance.initialize();
-  } catch (e) {
-    // 初期化失敗は致命的ではないため、エラーを無視
-    debugPrint('MobileAds initialization failed: $e');
-  }
+  // Google Mobile Adsの初期化はATT許可リクエスト後に行う
+  // （InitializationScreen._initialize内で実行）
 
   runApp(
     EasyLocalization(
@@ -82,8 +78,9 @@ void main() async {
         Locale('de'),
       ],
       path: 'assets/lang',
+      // startLocaleを指定しない（指定すると初回起動が常に日本語になる）
+      // デバイスのロケールを優先し、未対応言語は日本語にフォールバック
       fallbackLocale: const Locale('ja'),
-      startLocale: const Locale('ja'),
       child: MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
@@ -233,9 +230,19 @@ class _InitializationScreenState extends State<InitializationScreen> {
       // サブスクリプション状態の読み込みを待機
       await subscriptionProvider.loadStatus();
 
+      // ストアの購入イベント監視を開始（自動更新・復元の反映）
+      subscriptionProvider.startStoreSync();
+
       // ATT許可リクエスト（少し遅延）
       await Future.delayed(const Duration(milliseconds: 300));
       await requestTrackingPermissionIfNeeded();
+
+      // ATTの回答後に広告SDKを初期化する（同意フローとして正しい順序）
+      try {
+        await MobileAds.instance.initialize();
+      } catch (e) {
+        debugPrint('MobileAds initialization failed: $e');
+      }
 
       // HomeScreenに遷移
       if (mounted) {
@@ -245,8 +252,9 @@ class _InitializationScreenState extends State<InitializationScreen> {
           ),
         );
       }
-    } catch (e) {
-      // エラーが発生してもHomeScreenに遷移
+    } catch (e, stackTrace) {
+      // エラー内容を記録した上でHomeScreenに遷移
+      debugPrint('InitializationScreen._initialize: 初期化エラー: $e\n$stackTrace');
       if (mounted) {
         navigator.pushReplacement(
           MaterialPageRoute(
@@ -300,47 +308,11 @@ class _InitializationScreenState extends State<InitializationScreen> {
             const SizedBox(height: 24),
             // ローディングテキスト
             Text(
-              '読み込み中...',
+              tr('loading'),
               style: TextStyle(
                 fontSize: 16,
                 color: isDarkMode ? Colors.grey[400] : Colors.grey.shade600,
                 fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class TestHomePage extends StatelessWidget {
-  const TestHomePage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.pink[50],
-      appBar: AppBar(
-        title: const Text('かぎ針編みカウンター'),
-        backgroundColor: Colors.pink,
-      ),
-      body: const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.check_circle,
-              size: 100,
-              color: Colors.pink,
-            ),
-            SizedBox(height: 20),
-            Text(
-              'アプリが正常に動作しています！',
-              style: TextStyle(
-                fontSize: 24,
-                color: Colors.pink,
-                fontWeight: FontWeight.bold,
               ),
             ),
           ],

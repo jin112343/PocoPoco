@@ -63,8 +63,13 @@ class BackupService {
               backup['data'][key] = {'type': 'double', 'value': value};
             } else if (value is bool) {
               backup['data'][key] = {'type': 'bool', 'value': value};
-            } else if (value is List<String>) {
-              backup['data'][key] = {'type': 'stringList', 'value': value};
+            } else if (value is List) {
+              // プラットフォームから復元直後はList<Object?>になることがあり、
+              // `is List<String>` 判定だとプロジェクト一覧がバックアップから漏れる
+              backup['data'][key] = {
+                'type': 'stringList',
+                'value': value.map((e) => e.toString()).toList(),
+              };
             }
             _logger.d('createBackup: キー=$key をバックアップ');
           }

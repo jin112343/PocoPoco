@@ -24,11 +24,20 @@ class _TermsScreenState extends State<TermsScreen> {
             // Update loading bar.
           },
           onPageStarted: (String url) {
+            if (!mounted) return;
             setState(() {
               isLoading = true;
             });
           },
           onPageFinished: (String url) {
+            if (!mounted) return;
+            setState(() {
+              isLoading = false;
+            });
+          },
+          onWebResourceError: (WebResourceError error) {
+            // エラー時にスピナーが回り続けないようにする
+            if (!mounted) return;
             setState(() {
               isLoading = false;
             });

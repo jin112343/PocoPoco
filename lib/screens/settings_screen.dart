@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:in_app_review/in_app_review.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'terms_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'upgrade_screen.dart';
@@ -25,6 +26,27 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _version = 'v${info.version}';
+        });
+      }
+    } catch (e) {
+      debugPrint('バージョン情報の取得に失敗: $e');
+    }
+  }
+
   /// ダイアログ表示のヘルパー
   void _showDialog(String message) {
     if (mounted) {
@@ -36,7 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
+              child: Text(tr('ok')),
             ),
           ],
         ),
@@ -56,43 +78,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(tr('dark_mode')),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RadioListTile<ThemeModeSetting>(
-              title: Text(tr('theme_system')),
-              value: ThemeModeSetting.system,
-              groupValue: themeProvider.themeModeSetting,
-              onChanged: (value) {
-                if (value != null) {
-                  themeProvider.setThemeMode(value);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-            RadioListTile<ThemeModeSetting>(
-              title: Text(tr('theme_light')),
-              value: ThemeModeSetting.light,
-              groupValue: themeProvider.themeModeSetting,
-              onChanged: (value) {
-                if (value != null) {
-                  themeProvider.setThemeMode(value);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-            RadioListTile<ThemeModeSetting>(
-              title: Text(tr('theme_dark')),
-              value: ThemeModeSetting.dark,
-              groupValue: themeProvider.themeModeSetting,
-              onChanged: (value) {
-                if (value != null) {
-                  themeProvider.setThemeMode(value);
-                  Navigator.pop(context);
-                }
-              },
-            ),
-          ],
+        content: RadioGroup<ThemeModeSetting>(
+          groupValue: themeProvider.themeModeSetting,
+          onChanged: (value) {
+            if (value != null) {
+              themeProvider.setThemeMode(value);
+              Navigator.pop(context);
+            }
+          },
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<ThemeModeSetting>(
+                title: Text(tr('theme_system')),
+                value: ThemeModeSetting.system,
+              ),
+              RadioListTile<ThemeModeSetting>(
+                title: Text(tr('theme_light')),
+                value: ThemeModeSetting.light,
+              ),
+              RadioListTile<ThemeModeSetting>(
+                title: Text(tr('theme_dark')),
+                value: ThemeModeSetting.dark,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -104,7 +114,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('設定'),
+        title: Text(tr('settings')),
         backgroundColor: isDarkMode ? const Color(0xFFAD1457) : const Color(0xFFEC407A),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -151,16 +161,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              '無料トライアル期間中',
-                              style: TextStyle(
+                            Text(
+                              tr('free_trial_active'),
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             Text(
-                              '残り${subscriptionProvider.trialDaysRemaining}日',
+                              tr('days_remaining', namedArgs: {
+                                'days':
+                                    '${subscriptionProvider.trialDaysRemaining}'
+                              }),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 14,
@@ -310,7 +323,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'v2.0.3',
+                  _version,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: isDarkMode ? Colors.white : Colors.black,

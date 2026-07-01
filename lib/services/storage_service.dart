@@ -1,11 +1,22 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 import '../models/crochet_project.dart';
 
+/// プロジェクトの永続化サービス
+///
+/// プロジェクトは1件ずつ個別のキー（crochet_project_<id>）で保存する。
+/// 旧形式（crochet_projects キーに全件をStringListで一括保存）は
+/// 1目編むたびに全プロジェクトを再エンコードして書き戻すため、
+/// 履歴が増えると保存が重くなる問題があった。
+/// 旧形式のデータは読み込み時に自動的に個別キーへ移行する。
 class StorageService {
-  static const String _projectsKey = 'crochet_projects';
+  static const String _legacyProjectsKey = 'crochet_projects';
+  static const String _corruptedProjectsKey = 'crochet_projects_corrupted';
+  static const String _projectKeyPrefix = 'crochet_project_';
   static SharedPreferences? _prefs;
+  static final Random _random = Random();
   static final Logger _logger = Logger(
     printer: PrettyPrinter(
       methodCount: 0,
@@ -33,30 +44,74 @@ class StorageService {
     }
   }
 
+  /// 旧形式（一括StringList）のデータが残っていれば個別キーへ移行する。
+  /// バックアップ復元で旧形式キーが再登場するケースもここで吸収される。
+  static Future<void> _migrateLegacyIfNeeded() async {
+    final legacy = _prefs!.getStringList(_legacyProjectsKey);
+    if (legacy == null) return;
+
+    _logger.i('旧形式のプロジェクトデータを個別キーへ移行します: ${legacy.length}件');
+    final corrupted = <String>[
+      ...(_prefs!.getStringList(_corruptedProjectsKey) ?? const []),
+    ];
+
+    for (final jsonString in legacy) {
+      try {
+        final map = jsonDecode(jsonString) as Map<String, dynamic>;
+        final id = map['id'] as String;
+        final key = '$_projectKeyPrefix$id';
+        // 個別キーが既に存在する場合は上書きしない（個別キー側が最新）
+        if (!_prefs!.containsKey(key)) {
+          await _prefs!.setString(key, jsonString);
+        }
+      } catch (e) {
+        // 解析できないデータは消さずに退避して保全する
+        _logger.w('_migrateLegacyIfNeeded: 解析不能なプロジェクトを退避します: $e');
+        corrupted.add(jsonString);
+      }
+    }
+
+    if (corrupted.isNotEmpty) {
+      await _prefs!.setStringList(_corruptedProjectsKey, corrupted);
+    }
+    await _prefs!.remove(_legacyProjectsKey);
+    _logger.i('旧形式データの移行が完了しました');
+  }
+
+  /// 保存済みプロジェクトのキー一覧を取得
+  static Iterable<String> _projectKeys() {
+    return _prefs!
+        .getKeys()
+        .where((key) => key.startsWith(_projectKeyPrefix));
+  }
+
   // プロジェクト一覧を取得
   Future<List<CrochetProject>> getProjects() async {
     try {
       await _initPrefs();
-      final projectsJson = _prefs!.getStringList(_projectsKey) ?? [];
+      await _migrateLegacyIfNeeded();
 
       final projects = <CrochetProject>[];
-      for (int i = 0; i < projectsJson.length; i++) {
+      for (final key in _projectKeys()) {
+        final jsonString = _prefs!.getString(key);
+        if (jsonString == null) continue;
         try {
-          final json = projectsJson[i];
-          final project = CrochetProject.fromJson(jsonDecode(json));
-          projects.add(project);
+          projects.add(CrochetProject.fromJson(jsonDecode(jsonString)));
         } catch (e, stackTrace) {
+          // 解析に失敗してもデータ自体は個別キーに残るため消失しない
           _logger.e(
-            'getProjects: プロジェクト$i の解析に失敗',
+            'getProjects: $key の解析に失敗（データは保持されます）',
             error: e,
             stackTrace: stackTrace,
           );
         }
       }
 
-      projects.sort((a, b) =>
-          b.updatedAt?.compareTo(a.updatedAt ?? a.createdAt) ??
-          b.createdAt.compareTo(a.createdAt));
+      projects.sort((a, b) {
+        final aDate = a.updatedAt ?? a.createdAt;
+        final bDate = b.updatedAt ?? b.createdAt;
+        return bDate.compareTo(aDate);
+      });
       return projects;
     } catch (e, stackTrace) {
       _logger.e(
@@ -68,46 +123,25 @@ class StorageService {
     }
   }
 
-  // プロジェクトを保存
+  // プロジェクトを保存（該当プロジェクトのみ書き込む）
   Future<bool> saveProject(CrochetProject project,
       {bool isPremium = false}) async {
     try {
       await _initPrefs();
+      await _migrateLegacyIfNeeded();
 
-      final projects = await getProjects();
+      final key = '$_projectKeyPrefix${project.id}';
+      final isNew = !_prefs!.containsKey(key);
 
-      // 既存のプロジェクトを更新するか新しいプロジェクトを追加
-      final existingIndex = projects.indexWhere((p) => p.id == project.id);
-
-      if (existingIndex >= 0) {
-        projects[existingIndex] = project.copyWith(updatedAt: DateTime.now());
-      } else {
-        // 新規プロジェクトの場合のみ、プレミアムでない場合は保存制限をチェック
-        if (!isPremium && projects.length >= 3) {
-          return false;
-        }
-        projects.add(project);
+      // 新規プロジェクトの場合のみ、プレミアムでない場合は保存制限をチェック
+      if (isNew && !isPremium && _projectKeys().length >= 3) {
+        return false;
       }
 
-      // JSONに変換して保存
-      final projectsJson = <String>[];
-      for (int i = 0; i < projects.length; i++) {
-        try {
-          final p = projects[i];
-          final json = jsonEncode(p.toJson());
-          projectsJson.add(json);
-        } catch (e, stackTrace) {
-          _logger.e(
-            'saveProject: プロジェクト$i のJSON変換に失敗',
-            error: e,
-            stackTrace: stackTrace,
-          );
-          return false;
-        }
-      }
-
-      final success = await _prefs!.setStringList(_projectsKey, projectsJson);
-      return success;
+      final toSave =
+          isNew ? project : project.copyWith(updatedAt: DateTime.now());
+      final json = jsonEncode(toSave.toJson());
+      return await _prefs!.setString(key, json);
     } catch (e, stackTrace) {
       _logger.e(
         'saveProject: プロジェクト保存に失敗',
@@ -122,13 +156,9 @@ class StorageService {
   Future<bool> deleteProject(String projectId) async {
     try {
       await _initPrefs();
-      final projects = await getProjects();
+      await _migrateLegacyIfNeeded();
 
-      projects.removeWhere((project) => project.id == projectId);
-
-      final projectsJson = projects.map((p) => jsonEncode(p.toJson())).toList();
-
-      return await _prefs!.setStringList(_projectsKey, projectsJson);
+      return await _prefs!.remove('$_projectKeyPrefix$projectId');
     } catch (e, stackTrace) {
       _logger.e(
         'deleteProject: プロジェクト削除に失敗',
@@ -139,51 +169,11 @@ class StorageService {
     }
   }
 
-  // プロジェクト一覧を保存
-  Future<bool> saveProjects(List<CrochetProject> projects,
-      {bool isPremium = false}) async {
-    try {
-      await _initPrefs();
-
-      // プレミアムでない場合は保存制限をチェック
-      if (!isPremium && projects.length > 3) {
-        return false;
-      }
-
-      // JSONに変換して保存
-      final projectsJson = <String>[];
-      for (int i = 0; i < projects.length; i++) {
-        try {
-          final p = projects[i];
-          final json = jsonEncode(p.toJson());
-          projectsJson.add(json);
-        } catch (e, stackTrace) {
-          _logger.e(
-            'saveProjects: プロジェクト$i のJSON変換に失敗',
-            error: e,
-            stackTrace: stackTrace,
-          );
-          return false;
-        }
-      }
-
-      final success = await _prefs!.setStringList(_projectsKey, projectsJson);
-      return success;
-    } catch (e, stackTrace) {
-      _logger.e(
-        'saveProjects: プロジェクト一覧保存に失敗',
-        error: e,
-        stackTrace: stackTrace,
-      );
-      return false;
-    }
-  }
-
   // プロジェクトIDを生成
   String generateProjectId() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = (timestamp % 1000000).toString().padLeft(6, '0');
-    final uuid = '${timestamp}_$random';
-    return uuid;
+    // 同一ミリ秒内の生成でも衝突しないよう乱数を使用
+    final random = _random.nextInt(1000000).toString().padLeft(6, '0');
+    return '${timestamp}_$random';
   }
 }

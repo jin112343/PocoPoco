@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
 
@@ -146,11 +147,10 @@ class DataMigrationService {
       const projectsKey = 'crochet_projects';
       final projectsData = _prefs!.getStringList(projectsKey);
       if (projectsData != null) {
-        // 各プロジェクトのJSON形式をチェック
+        // 各プロジェクトのJSON形式をチェック（実際にパース可能か検証する）
         for (int i = 0; i < projectsData.length; i++) {
           try {
-            // JSON形式の検証のみ（パース可能かチェック）
-            final _ = projectsData[i];
+            jsonDecode(projectsData[i]);
           } catch (e) {
             _logger.w('validateData: プロジェクト$i 形式エラー', error: e);
           }

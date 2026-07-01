@@ -44,7 +44,10 @@ class PdfExportService {
 
     // 一時ファイルとして保存
     final dir = await getTemporaryDirectory();
-    final fileName = '${project.title.replaceAll(RegExp(r'[^\w\s]'), '_')}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+    // ファイル名として使えない文字のみ置換する（\wはASCII限定のため、
+    // 日本語タイトルが全て「_」になってしまう問題を回避）
+    final safeTitle = project.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+    final fileName = '${safeTitle}_${DateTime.now().millisecondsSinceEpoch}.pdf';
     final file = File('${dir.path}/$fileName');
     await file.writeAsBytes(bytes);
 
@@ -65,13 +68,30 @@ class PdfExportService {
     );
   }
 
+  /// 日本語フォントをロード（アセット同梱フォントを優先し、
+  /// 読み込み失敗時のみGoogle Fontsからのダウンロードにフォールバック）
+  static Future<pw.Font> _loadJapaneseFont({required bool bold}) async {
+    try {
+      final path = bold
+          ? 'assets/fonts/NotoSansJP-Bold.ttf'
+          : 'assets/fonts/NotoSansJP-Regular.ttf';
+      final fontData = await rootBundle.load(path);
+      return pw.Font.ttf(fontData);
+    } catch (e) {
+      // アセットが読めない場合はネットワーク経由（オンライン時のみ成功）
+      return bold
+          ? await PdfGoogleFonts.notoSansJPBold()
+          : await PdfGoogleFonts.notoSansJPRegular();
+    }
+  }
+
   /// PDFを生成
   static Future<pw.Document> _generatePdf(CrochetProject project) async {
     final pdf = pw.Document();
 
-    // 日本語フォントをロード
-    final font = await PdfGoogleFonts.notoSansJPRegular();
-    final fontBold = await PdfGoogleFonts.notoSansJPBold();
+    // 日本語フォントをロード（オフラインでも動作するようアセットから）
+    final font = await _loadJapaneseFont(bold: false);
+    final fontBold = await _loadJapaneseFont(bold: true);
 
     // アプリアイコンをロード
     final iconData = await rootBundle.load('assets/images/icon_1024.png');
@@ -95,13 +115,15 @@ class PdfExportService {
           pw.SizedBox(height: 20),
 
           // 編み目パターン
+          // 段ごとに個別のウィジェットとして渡す（単一のColumnにまとめると
+          // ページ分割できず、段数が多い場合に例外でPDF生成が失敗する）
           if (rowGroups.isNotEmpty) ...[
             pw.Text(
               '編み目パターン',
               style: pw.TextStyle(font: fontBold, fontSize: 16),
             ),
             pw.SizedBox(height: 10),
-            _buildStitchPattern(rowGroups, font, fontBold, stitchImages),
+            ..._buildStitchPatternRows(rowGroups, font, fontBold, stitchImages),
           ],
 
           // 編み目凡例
@@ -262,8 +284,9 @@ class PdfExportService {
     return groups;
   }
 
-  /// 編み目パターンを作成
-  static pw.Widget _buildStitchPattern(
+  /// 編み目パターンを段ごとのウィジェットリストとして作成
+  /// （MultiPageがページをまたいで分割できるようにする）
+  static List<pw.Widget> _buildStitchPatternRows(
     Map<int, List<Map<String, dynamic>>> rowGroups,
     pw.Font font,
     pw.Font fontBold,
@@ -271,9 +294,7 @@ class PdfExportService {
   ) {
     final sortedRows = rowGroups.keys.toList()..sort();
 
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: sortedRows.map((row) {
+    return sortedRows.map((row) {
         final stitches = rowGroups[row]!;
         return pw.Container(
           margin: const pw.EdgeInsets.only(bottom: 8),
@@ -318,8 +339,7 @@ class PdfExportService {
             ],
           ),
         );
-      }).toList(),
-    );
+      }).toList();
   }
 
   /// 編み目シンボルを作成（画像またはフォールバックテキスト）

@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:poco/main.dart';
 import 'package:poco/services/subscription_provider.dart';
+import 'package:poco/services/theme_provider.dart';
 
 void main() {
   setUpAll(() async {
@@ -37,8 +38,11 @@ void main() {
         path: 'assets/lang',
         fallbackLocale: const Locale('ja'),
         startLocale: const Locale('ja'),
-        child: ChangeNotifierProvider(
-          create: (_) => SubscriptionProvider(),
+        child: MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
+            ChangeNotifierProvider(create: (_) => ThemeProvider()),
+          ],
           child: const MyApp(),
         ),
       ),
@@ -52,21 +56,5 @@ void main() {
     // ローディングインジケーターまたはローディングテキストが表示されることを確認
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text('読み込み中...'), findsOneWidget);
-  });
-
-  testWidgets('TestHomePage displays correctly', (WidgetTester tester) async {
-    // TestHomePageを直接テスト
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: TestHomePage(),
-      ),
-    );
-
-    await tester.pump();
-
-    // TestHomePageのタイトルが表示されることを確認
-    expect(find.text('かぎ針編みカウンター'), findsOneWidget);
-    expect(find.text('アプリが正常に動作しています！'), findsOneWidget);
-    expect(find.byIcon(Icons.check_circle), findsOneWidget);
   });
 }
