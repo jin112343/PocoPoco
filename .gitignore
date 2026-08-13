@@ -50,3 +50,4 @@ functions/node_modules/
 
 # Stray build output folders (macOS duplicates, CMake artifacts)
 build */
+firebase-debug.log
