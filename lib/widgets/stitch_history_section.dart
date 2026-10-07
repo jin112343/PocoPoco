@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/crochet_stitch.dart';
+import '../models/project_markers.dart';
 import 'package:easy_localization/easy_localization.dart';
 
 class StitchHistorySection extends StatefulWidget {
@@ -7,21 +8,20 @@ class StitchHistorySection extends StatefulWidget {
     super.key,
     required this.stitchHistory,
     required this.currentStitches,
-    this.onRowTap,
-    this.onRowCompleted,
     this.onStitchRemoved,
     this.currentRow,
-    this.currentStitchCount,
+    this.markers = ProjectMarkers.none,
   });
 
   final List<Map<String, dynamic>> stitchHistory;
   final List<dynamic> currentStitches;
-  final Function(int)? onRowTap;
-  final Function(int)? onRowCompleted;
   final Function(int)? onStitchRemoved; // 編み目削除コールバック
 
+  /// いま編んでいる段（見出しを強調表示する）
   final int? currentRow;
-  final int? currentStitchCount;
+
+  /// くり返し編みの目印（確認の段・模様の始まりに印を付ける）
+  final ProjectMarkers markers;
 
   @override
   State<StitchHistorySection> createState() => _StitchHistorySectionState();
@@ -40,10 +40,14 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     super.initState();
     _lastMaxRow = _getMaxRow();
     _lastHistoryLength = widget.stitchHistory.length;
-    // 既存プロジェクトを開いた直後は、最新段の右端（最後に編んだ目）を表示する
+    // 既存プロジェクトを開いた直後は、いま編んでいる段（一番下）の
+    // 右端（最後に編んだ目）を表示する。続きがすぐ分かるようにするため
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_didInitialScroll) {
         _didInitialScroll = true;
+        if (_scrollController.hasClients) {
+          _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+        }
         _scrollLatestRowToEnd(animate: false);
       }
     });
@@ -76,14 +80,12 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     if (currentMaxRow > _lastMaxRow) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _scrollToLatestRow();
-        if (widget.onRowCompleted != null) {
-          widget.onRowCompleted!(currentMaxRow);
-        }
       });
     } else if (currentHistoryLength > oldHistoryLength) {
       // 編み目が追加された場合は、その段の右端（新しい編み目）まで滑らかにスクロール
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
+          _ensureLatestRowVisible();
           _scrollLatestRowToEnd(animate: true);
         }
       });
@@ -95,6 +97,10 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     _lastMaxRow = currentMaxRow;
     _lastHistoryLength = currentHistoryLength;
   }
+
+  /// 全体の目数（段の開始マーカーは数えない）
+  int _totalStitchCount() =>
+      widget.stitchHistory.where((e) => e['position'] != 0).length;
 
   int _getMaxRow() {
     try {
@@ -178,6 +184,25 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       }
     } catch (e) {
       // エラーが発生した場合は無視（段が削除された可能性）
+    }
+  }
+
+  /// 前の段を見返している途中で編み目を追加しても、編んでいる段が見えるようにする
+  /// （すでに見えている場合は動かさない）
+  void _ensureLatestRowVisible() {
+    try {
+      if (widget.stitchHistory.isEmpty) return;
+      final latestRow = widget.stitchHistory.last['row'] as int;
+      final rowContext = _rowKeys[latestRow]?.currentContext;
+      if (rowContext == null) return;
+      Scrollable.ensureVisible(
+        rowContext,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    } catch (e) {
+      // スクロール中にエラーが発生した場合は無視
     }
   }
 
@@ -267,6 +292,14 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   Widget build(BuildContext context) {
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
+    // 各段は固定の高さで並べているため、文字サイズ設定による拡大に上限を設ける
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: Builder(builder: (context) => _buildSection(context, isDarkMode)),
+    );
+  }
+
+  Widget _buildSection(BuildContext context, bool isDarkMode) {
     return Container(
       decoration: BoxDecoration(
         color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
@@ -279,45 +312,41 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
             child: Row(
               children: [
-                Text(
-                  tr('stitch_history'),
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: isDarkMode ? Colors.white : Colors.black87,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    tr('total_stitches', namedArgs: {'count': '${widget.stitchHistory.length}'}),
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: isDarkMode ? Colors.grey[400] : Colors.grey,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const Spacer(),
-                if (widget.currentRow != null &&
-                    widget.currentStitchCount != null)
-                  Flexible(
-                    child: Text(
-                      tr('row_stitch_status', namedArgs: {
-                        'row': '${widget.currentRow}',
-                        'count': '${widget.currentStitchCount}',
-                      }),
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: isDarkMode ? Colors.grey[400] : Colors.grey,
-                        fontWeight: FontWeight.w500,
+                Expanded(
+                  child: Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          tr('stitch_history'),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: isDarkMode ? Colors.white : Colors.black87,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          tr('total_stitches',
+                              namedArgs: {'count': '${_totalStitchCount()}'}),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color:
+                                isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
                   ),
+                ),
                 if (widget.stitchHistory.isNotEmpty)
                   Icon(
                     Icons.swipe,
@@ -330,15 +359,20 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           Expanded(
             child: widget.stitchHistory.isEmpty
                 ? Center(
-                    child: Column(
+                    // 表示領域が狭い端末でもはみ出さないよう、収まらない時は縮小する
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
                           Icons.timeline,
-                          size: 64,
+                          size: 56,
                           color: isDarkMode ? Colors.grey[600] : const Color(0xFFE0E0E0),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
                         Text(
                           tr('history_empty_message'),
                           style: TextStyle(
@@ -348,6 +382,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                           textAlign: TextAlign.center,
                         ),
                       ],
+                        ),
+                      ),
                     ),
                   )
                 : Padding(
@@ -399,7 +435,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           key: ValueKey('row_${row}_${rowStitches.first['timestamp']?.millisecondsSinceEpoch ?? row}'),
           direction: DismissDirection.endToStart,
           background: Container(
-            margin: const EdgeInsets.only(bottom: 24),
+            margin: const EdgeInsets.only(bottom: 18),
             decoration: BoxDecoration(
               color: Colors.red,
               borderRadius: BorderRadius.circular(12),
@@ -440,35 +476,15 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           },
           child: Container(
             key: _rowKeys[row],
-            margin: const EdgeInsets.only(bottom: 24),
+            margin: const EdgeInsets.only(bottom: 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 GestureDetector(
-                  onTap: () {
-                    scrollToRow(row);
-                    if (widget.onRowTap != null) {
-                      widget.onRowTap!(row);
-                    }
-                  },
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: isDarkMode ? const Color(0xFFAD1457) : const Color(0xFFF8BBD9),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      tr('row_label', namedArgs: {'row': '$row'}),
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: isDarkMode ? Colors.white : const Color(0xFFAD1457),
-                      ),
-                    ),
-                  ),
+                  onTap: () => scrollToRow(row),
+                  child: _buildRowLabel(row, isDarkMode),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 // この段の編み目を横スクロール可能に表示
                 if (rowStitches.any((stitch) => stitch['position'] != 0))
                   SizedBox(
@@ -597,6 +613,76 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     }
 
     return items;
+  }
+
+  /// 段の見出し。編んでいる段は濃い色で強調し、目印のある段には印を付ける
+  Widget _buildRowLabel(int row, bool isDarkMode) {
+    final isCurrent = row == widget.currentRow;
+    final isCheckRow = widget.markers.isCheckRow(row);
+    final repeatNumber = widget.markers.repeatNumberStartingAt(row);
+
+    final Color background;
+    final Color foreground;
+    if (isCurrent) {
+      background = isDarkMode ? const Color(0xFFEC407A) : const Color(0xFFAD1457);
+      foreground = Colors.white;
+    } else {
+      background = isDarkMode ? const Color(0xFF6A1B45) : const Color(0xFFF8BBD9);
+      foreground = isDarkMode ? Colors.white : const Color(0xFFAD1457);
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Text(
+            tr('row_label', namedArgs: {'row': '$row'}),
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.bold,
+              color: foreground,
+            ),
+          ),
+        ),
+        if (isCheckRow) ...[
+          const SizedBox(width: 8),
+          Icon(
+            Icons.flag,
+            key: ValueKey('row_check_flag_$row'),
+            size: 20,
+            color: isDarkMode ? const Color(0xFFFFD54F) : const Color(0xFFF57F17),
+            semanticLabel: tr('marker_check_row_semantics'),
+          ),
+        ],
+        if (repeatNumber != null) ...[
+          const SizedBox(width: 8),
+          Icon(
+            Icons.repeat,
+            size: 16,
+            color: isDarkMode ? Colors.grey[300] : Colors.grey[700],
+          ),
+          const SizedBox(width: 2),
+          Flexible(
+            child: Text(
+              tr('marker_repeat_row_badge',
+                  namedArgs: {'current': '$repeatNumber'}),
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: isDarkMode ? Colors.grey[300] : Colors.grey[700],
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ],
+    );
   }
 
   // 履歴のstitch情報を現在のボタンリストから探す

@@ -11,29 +11,80 @@ import 'package:easy_localization/easy_localization.dart';
 class StitchPatternGrid extends StatefulWidget {
   const StitchPatternGrid({
     super.key,
-    required this.selectedStitch,
-    required this.onStitchSelected,
     required this.onStitchAdded,
     this.projectStitches, // プロジェクト固有の編み目設定
-    this.onStitchSettingsChanged, // 編み目設定が変更された時のコールバック
     this.onProjectStitchesChanged, // プロジェクト固有の編み目設定が変更された時のコールバック
     this.isLandscape = false, // 横向きモード
+    this.buttonHeight = defaultButtonHeight,
+    this.maxVisibleRows = 3,
   });
 
-  final CrochetStitch selectedStitch;
-  final Function(CrochetStitch) onStitchSelected;
+  static const double defaultButtonHeight = 80;
+
+  // レイアウト用の固定寸法（heightFor と build で同じ値を使う）
+  static const double _headerHeight = 36;
+  static const double _headerGap = 6;
+  static const double _gridPadding = 10;
+  static const double _gridSpacing = 8;
+  // スクロールできることが分かるよう、次の行を少しだけ見せる割合
+  static const double _peekRatio = 0.35;
+
+  /// 縦持ち・横持ちそれぞれの列数
+  static int columnsFor({required bool isLandscape}) => isLandscape ? 2 : 3;
+
+  /// このウィジェットが占める高さ。画面側のレイアウト計算に使う
+  static double heightFor({
+    required int stitchCount,
+    required bool isLandscape,
+    required double buttonHeight,
+    int maxVisibleRows = 3,
+  }) {
+    return _headerHeight +
+        _headerGap +
+        _gridPadding * 2 +
+        _gridHeight(
+          stitchCount: stitchCount,
+          isLandscape: isLandscape,
+          buttonHeight: buttonHeight,
+          maxVisibleRows: maxVisibleRows,
+        );
+  }
+
+  static double _gridHeight({
+    required int stitchCount,
+    required bool isLandscape,
+    required double buttonHeight,
+    required int maxVisibleRows,
+  }) {
+    final columns = columnsFor(isLandscape: isLandscape);
+    final rows = stitchCount <= 0 ? 1 : (stitchCount / columns).ceil();
+    if (rows <= maxVisibleRows) {
+      return rows * buttonHeight + (rows - 1) * _gridSpacing;
+    }
+    return maxVisibleRows * buttonHeight +
+        maxVisibleRows * _gridSpacing +
+        buttonHeight * _peekRatio;
+  }
+
   final Function(dynamic) onStitchAdded;
   final List<dynamic>? projectStitches; // プロジェクト固有の編み目設定
-  final VoidCallback? onStitchSettingsChanged; // 編み目設定が変更された時のコールバック
   final Function(List<dynamic>)?
       onProjectStitchesChanged; // プロジェクト固有の編み目設定が変更された時のコールバック
   final bool isLandscape; // 横向きモード
+
+  /// 編み方ボタン1つの高さ
+  final double buttonHeight;
+
+  /// スクロールなしで見せる最大行数（これを超えるとグリッド内でスクロール）
+  final int maxVisibleRows;
 
   @override
   State<StitchPatternGrid> createState() => _StitchPatternGridState();
 }
 
 class _StitchPatternGridState extends State<StitchPatternGrid> {
+  static const double _horizontalNameMaxScale = 1.1;
+
   List<dynamic> _stitches = [];
   bool _isLoading = true;
   bool? _wasPremium; // 前回のプレミアム状態を記録
@@ -281,16 +332,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     }
   }
 
-  // 横向き時の列数を取得
-  int _getCrossAxisCount() {
-    return widget.isLandscape ? 2 : 3;
-  }
-
-  // 横向き時のアスペクト比を取得
-  double _getChildAspectRatio() {
-    return widget.isLandscape ? 2.0 : 1.3;
-  }
-
   /// 編み目カスタマイズ画面を開く（プレミアム未加入の場合はアップグレード画面へ）
   Future<void> _openCustomization() async {
     final isPremium = context.read<SubscriptionProvider>().isPremium;
@@ -326,199 +367,244 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
 
   @override
   Widget build(BuildContext context) {
+    final gridHeight = StitchPatternGrid._gridHeight(
+      stitchCount: _stitches.length,
+      isLandscape: widget.isLandscape,
+      buttonHeight: widget.buttonHeight,
+      maxVisibleRows: widget.maxVisibleRows,
+    );
+
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      // 読み込み中も同じ高さを確保して、表示後にレイアウトが動かないようにする
+      return SizedBox(
+        height: StitchPatternGrid._headerHeight +
+            StitchPatternGrid._headerGap +
+            StitchPatternGrid._gridPadding * 2 +
+            gridHeight,
+      );
     }
 
-    final crossAxisCount = _getCrossAxisCount();
-    final childAspectRatio = _getChildAspectRatio();
+    final columns =
+        StitchPatternGrid.columnsFor(isLandscape: widget.isLandscape);
+    final rows = (_stitches.length / columns).ceil();
+    final scrollable = rows > widget.maxVisibleRows;
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Flexible(
-              child: Text(
-                tr('select_stitch_hint'),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: isDarkMode ? Colors.white70 : Colors.black87,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            // 編み目カスタマイズボタン
-            IconButton(
-              icon: const Icon(Icons.edit, size: 20),
-              onPressed: _openCustomization,
-              tooltip: tr('customize_stitches_tooltip'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: isDarkMode
-                    ? Colors.black.withValues(alpha: 0.3)
-                    : Colors.pink.withValues(alpha: 0.1),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          // 7つ以上のボタンがある場合はスクロール可能にする
-          child: _stitches.length > 7
-              ? SizedBox(
-                  height:
-                      _calculateGridHeight(_stitches.length, crossAxisCount),
-                  child: _buildStitchGrid(
-                    crossAxisCount,
-                    childAspectRatio,
-                    scrollable: true,
+    // ボタン内の文字が端末の文字サイズ設定ではみ出さないよう上限を設ける
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: StitchPatternGrid._headerHeight,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    tr('select_stitch_hint'),
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isDarkMode ? Colors.white70 : Colors.black87,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                )
-              : _buildStitchGrid(
-                  crossAxisCount,
-                  childAspectRatio,
-                  scrollable: false,
                 ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStitchGrid(
-    int crossAxisCount,
-    double childAspectRatio, {
-    required bool scrollable,
-  }) {
-    return GridView.builder(
-      shrinkWrap: !scrollable,
-      physics: scrollable ? null : const NeverScrollableScrollPhysics(),
-      scrollDirection: Axis.vertical,
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        childAspectRatio: childAspectRatio,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
+                // 編み目カスタマイズボタン
+                IconButton(
+                  icon: const Icon(Icons.edit, size: 20),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: StitchPatternGrid._headerHeight,
+                  ),
+                  onPressed: _openCustomization,
+                  tooltip: tr('customize_stitches_tooltip'),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: StitchPatternGrid._headerGap),
+          Container(
+            padding: const EdgeInsets.all(StitchPatternGrid._gridPadding),
+            decoration: BoxDecoration(
+              color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: isDarkMode
+                      ? Colors.black.withValues(alpha: 0.3)
+                      : Colors.pink.withValues(alpha: 0.1),
+                  blurRadius: 8,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: SizedBox(
+              height: gridHeight,
+              child: GridView.builder(
+                padding: EdgeInsets.zero,
+                physics:
+                    scrollable ? null : const NeverScrollableScrollPhysics(),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  mainAxisExtent: widget.buttonHeight,
+                  crossAxisSpacing: StitchPatternGrid._gridSpacing,
+                  mainAxisSpacing: StitchPatternGrid._gridSpacing,
+                ),
+                itemCount: _stitches.length,
+                itemBuilder: (context, index) =>
+                    _buildStitchButton(_stitches[index], index),
+              ),
+            ),
+          ),
+        ],
       ),
-      itemCount: _stitches.length,
-      itemBuilder: (context, index) =>
-          _buildStitchButton(_stitches[index], index),
     );
   }
 
   Widget _buildStitchButton(dynamic stitch, int index) {
     final buttonColor = _getStitchColorByIndex(index);
     final stitchName = _getStitchName(stitch);
-    final fallbackInitial = stitchName.isNotEmpty ? stitchName.substring(0, 1) : '?';
+    // 高さに余裕がある時は「画像の下に名前」の縦並びにして名前を読みやすくする
+    final vertical = !widget.isLandscape && widget.buttonHeight >= 76;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () {
-          widget.onStitchAdded(stitch);
-        },
-        onLongPress: _openCustomization,
-        child: Container(
-          decoration: BoxDecoration(
-            color: buttonColor.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: buttonColor,
-              width: 2,
+    // ラベルは中のTextから、押す操作はInkWellから読み上げに伝わる
+    return Semantics(
+      button: true,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: ValueKey('stitch_button_$index'),
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            widget.onStitchAdded(stitch);
+          },
+          onLongPress: _openCustomization,
+          child: Ink(
+            decoration: BoxDecoration(
+              color: buttonColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: buttonColor,
+                width: 2,
+              ),
             ),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Center(
-                  child: stitch.imagePath != null
-                      ? Padding(
-                          padding: const EdgeInsets.all(3),
-                          child: Image.asset(
-                            stitch.imagePath!,
-                            width: 26,
-                            height: 26,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Text(
-                                fallbackInitial,
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: buttonColor,
-                                ),
-                              );
-                            },
-                          ),
-                        )
-                      : Text(
-                          fallbackInitial,
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: buttonColor,
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  stitchName,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: buttonColor,
-                  ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+              child: vertical
+                  ? _buildVerticalContent(stitch, stitchName, buttonColor)
+                  : _buildHorizontalContent(stitch, stitchName, buttonColor),
+            ),
           ),
         ),
       ),
     );
   }
 
-  double _calculateGridHeight(int itemCount, int crossAxisCount) {
-    // ボタンの数に応じて適切な高さを計算
-    // 行数 = ceil(itemCount / crossAxisCount)
-    final rows = (itemCount / crossAxisCount).ceil();
+  /// 画像の下に名前を置くレイアウト。収まらない場合は全体を縮小する
+  Widget _buildVerticalContent(
+      dynamic stitch, String stitchName, Color buttonColor) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildStitchImage(stitch, stitchName, buttonColor, size: 38),
+                const SizedBox(height: 3),
+                Text(
+                  stitchName,
+                  style: TextStyle(
+                    fontSize: 13,
+                    height: 1.15,
+                    fontWeight: FontWeight.w700,
+                    color: buttonColor,
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
-    // 各ボタンの高さ（横向きの場合は小さめ）+ 行間のスペース（10px）+ パディング
-    final buttonHeight = widget.isLandscape ? 60.0 : 80.0;
-    const rowSpacing = 10.0;
-    const padding = 24.0; // 上下のパディング
+  /// 画像の横に名前を置くレイアウト（高さが低いボタン・横持ち用）
+  Widget _buildHorizontalContent(
+      dynamic stitch, String stitchName, Color buttonColor) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildStitchImage(stitch, stitchName, buttonColor, size: 36),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            stitchName,
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.15,
+              fontWeight: FontWeight.w700,
+              color: buttonColor,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            // 画像の横は幅が狭いので、名前が途中で切れないよう拡大を抑える
+            textScaler: MediaQuery.textScalerOf(context)
+                .clamp(maxScaleFactor: _horizontalNameMaxScale),
+          ),
+        ),
+      ],
+    );
+  }
 
-    // 必要な高さを計算
-    final calculatedHeight =
-        (rows * buttonHeight) + ((rows - 1) * rowSpacing) + padding;
+  Widget _buildStitchImage(
+    dynamic stitch,
+    String stitchName,
+    Color buttonColor, {
+    required double size,
+  }) {
+    final fallback = Text(
+      stitchName.isNotEmpty ? stitchName.substring(0, 1) : '?',
+      style: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.bold,
+        color: buttonColor,
+      ),
+      textScaler: TextScaler.noScaling,
+    );
 
-    // 最小高さと最大高さを設定（横向きの場合は調整）
-    final minHeight = widget.isLandscape ? 150.0 : 200.0;
-    final maxHeight = widget.isLandscape ? 300.0 : 400.0;
-
-    return calculatedHeight.clamp(minHeight, maxHeight);
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: stitch.imagePath != null
+            ? Padding(
+                padding: const EdgeInsets.all(3),
+                child: Image.asset(
+                  stitch.imagePath!,
+                  width: size - 10,
+                  height: size - 10,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => fallback,
+                ),
+              )
+            : fallback,
+      ),
+    );
   }
 }

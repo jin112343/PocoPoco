@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:google_mobile_ads/google_mobile_ads.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -10,6 +10,9 @@ import 'screens/home_screen.dart';
 import 'services/subscription_provider.dart';
 import 'services/theme_provider.dart';
 import 'services/data_migration_service.dart';
+import 'services/ads_initializer.dart';
+import 'services/user_prefs_service.dart';
+import 'widgets/cat_loading.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 
@@ -97,8 +100,9 @@ Future<void> requestTrackingPermissionIfNeeded() async {
   try {
     final status = await AppTrackingTransparency.trackingAuthorizationStatus;
     if (status == TrackingStatus.notDetermined) {
-      // 少し遅延を入れてから許可を要求
-      await Future.delayed(const Duration(milliseconds: 500));
+      // 許可ダイアログはアプリが前面に出てからでないと表示されないため、
+      // 表示が必要な場合だけ少し待ってから要求する
+      await Future.delayed(const Duration(milliseconds: 800));
       await AppTrackingTransparency.requestTrackingAuthorization();
     }
   } catch (e) {
@@ -208,6 +212,11 @@ class InitializationScreen extends StatefulWidget {
 }
 
 class _InitializationScreenState extends State<InitializationScreen> {
+  // 読み込みがこの時間で終わらなければ、回し続けずに再試行を出す
+  static const Duration _loadTimeout = Duration(seconds: 15);
+
+  bool _loadFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -217,52 +226,70 @@ class _InitializationScreenState extends State<InitializationScreen> {
   Future<void> _initialize() async {
     // 非同期処理の前にcontextへの参照を保存
     final subscriptionProvider = context.read<SubscriptionProvider>();
+
+    try {
+      await _loadAppData(subscriptionProvider).timeout(_loadTimeout);
+    } catch (e, stackTrace) {
+      debugPrint('InitializationScreen._initialize: 初期化エラー: $e\n$stackTrace');
+      if (mounted) {
+        setState(() {
+          _loadFailed = true;
+        });
+      }
+      return;
+    }
+
+    await _finishStartup(subscriptionProvider);
+  }
+
+  /// アプリの表示に必要なデータの読み込み
+  Future<void> _loadAppData(SubscriptionProvider subscriptionProvider) async {
+    // データマイグレーション処理
+    final migrationSuccess = await DataMigrationService.migrate();
+    if (!migrationSuccess) {
+      throw StateError('データマイグレーションに失敗しました');
+    }
+    // データ整合性チェック
+    await DataMigrationService.validateData();
+
+    await UserPrefsService.load();
+
+    // サブスクリプション状態の読み込みを待機
+    await subscriptionProvider.loadStatus();
+  }
+
+  /// 読み込み後の処理（ストア監視・ATT・広告SDK）。失敗してもホームへ進む
+  Future<void> _finishStartup(SubscriptionProvider subscriptionProvider) async {
     final navigator = Navigator.of(context);
 
     try {
-      // データマイグレーション処理
-      final migrationSuccess = await DataMigrationService.migrate();
-      if (migrationSuccess) {
-        // データ整合性チェック
-        await DataMigrationService.validateData();
-      }
-
-      // サブスクリプション状態の読み込みを待機
-      await subscriptionProvider.loadStatus();
-
       // ストアの購入イベント監視を開始（自動更新・復元の反映）
       subscriptionProvider.startStoreSync();
 
-      // ATT許可リクエスト（少し遅延）
-      await Future.delayed(const Duration(milliseconds: 300));
+      // ATT許可リクエスト
       await requestTrackingPermissionIfNeeded();
-
-      // ATTの回答後に広告SDKを初期化する（同意フローとして正しい順序）
-      try {
-        await MobileAds.instance.initialize();
-      } catch (e) {
-        debugPrint('MobileAds initialization failed: $e');
-      }
-
-      // HomeScreenに遷移
-      if (mounted) {
-        navigator.pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const HomeScreen(),
-          ),
-        );
-      }
     } catch (e, stackTrace) {
-      // エラー内容を記録した上でHomeScreenに遷移
-      debugPrint('InitializationScreen._initialize: 初期化エラー: $e\n$stackTrace');
-      if (mounted) {
-        navigator.pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const HomeScreen(),
-          ),
-        );
-      }
+      debugPrint('InitializationScreen._finishStartup: $e\n$stackTrace');
     }
+
+    // ATTの回答後に広告SDKを初期化する（同意フローとして正しい順序）。
+    // 初期化の完了は待たずにホームへ進み、広告を読み込む側が完了を待つ
+    unawaited(AdsInitializer.start());
+
+    if (mounted) {
+      navigator.pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => const HomeScreen(),
+        ),
+      );
+    }
+  }
+
+  void _retry() {
+    setState(() {
+      _loadFailed = false;
+    });
+    _initialize();
   }
 
   @override
@@ -271,52 +298,19 @@ class _InitializationScreenState extends State<InitializationScreen> {
 
     return Scaffold(
       backgroundColor: isDarkMode ? const Color(0xFF1A1A1A) : const Color(0xFFFCE4EC),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // アプリアイコン
-            Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: isDarkMode
-                        ? Colors.black.withValues(alpha: 0.3)
-                        : Colors.black.withValues(alpha: 0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+      body: SafeArea(
+        child: _loadFailed
+            ? CatLoadFailedView(
+                message: tr('startup_failed'),
+                retryLabel: tr('retry'),
+                onRetry: _retry,
+                secondaryLabel: tr('continue_anyway'),
+                onSecondary: () =>
+                    _finishStartup(context.read<SubscriptionProvider>()),
+              )
+            : Center(
+                child: CatLoadingMessage(message: tr('loading')),
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
-                child: Image.asset(
-                  'assets/images/icon_1024.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-            const SizedBox(height: 40),
-            // ローディングインジケーター
-            const CircularProgressIndicator(
-              color: Color(0xFFEC407A),
-              strokeWidth: 3,
-            ),
-            const SizedBox(height: 24),
-            // ローディングテキスト
-            Text(
-              tr('loading'),
-              style: TextStyle(
-                fontSize: 16,
-                color: isDarkMode ? Colors.grey[400] : Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

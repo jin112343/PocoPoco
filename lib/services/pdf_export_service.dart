@@ -142,6 +142,7 @@ class PdfExportService {
     final loadedPaths = <String>{};
 
     for (final stitch in project.stitchHistory) {
+      if (_isRowStartMarker(stitch)) continue;
       final stitchData = stitch['stitch'];
       final imagePath = _getStitchImagePath(stitchData);
 
@@ -159,6 +160,10 @@ class PdfExportService {
 
     return images;
   }
+
+  /// 段の開始を表す目印かどうか（編み目ではないので、図や目数には含めない）
+  static bool _isRowStartMarker(Map<String, dynamic> entry) =>
+      entry['position'] == 0;
 
   /// 編み目の画像パスを取得
   static String? _getStitchImagePath(dynamic stitch) {
@@ -278,6 +283,7 @@ class PdfExportService {
     for (final stitch in stitchHistory) {
       final row = stitch['row'] as int? ?? 1;
       groups.putIfAbsent(row, () => []);
+      if (_isRowStartMarker(stitch)) continue;
       groups[row]!.add(stitch);
     }
 
@@ -388,6 +394,7 @@ class PdfExportService {
     // 使用されている編み目を収集（重複を避けるためにimagePathでグループ化）
     final usedStitches = <String, dynamic>{};
     for (final stitch in project.stitchHistory) {
+      if (_isRowStartMarker(stitch)) continue;
       final stitchData = stitch['stitch'];
       final imagePath = _getStitchImagePath(stitchData) ?? _getStitchName(stitchData);
       if (!usedStitches.containsKey(imagePath)) {

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:easy_localization/easy_localization.dart';
 
+import 'premium_stitches.dart';
+
 /// 編み目定義の共通インターフェース
 /// 基本編み目（CrochetStitch enum）とカスタム編み目（CustomStitch）の
 /// 両方が実装する。型チェックの重複（is CrochetStitch || is CustomStitch）を
@@ -109,7 +111,7 @@ class CustomStitch implements StitchDef {
 
   // 日本語名から画像パスを検索
   static String? lookupImagePath(String nameJa) {
-    return _knownImagePaths[nameJa];
+    return _knownImagePaths[nameJa] ?? premiumStitchImagePath(nameJa);
   }
 
   const CustomStitch({

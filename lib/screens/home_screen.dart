@@ -7,7 +7,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/crochet_project.dart';
+import '../models/stitch_info.dart';
 import '../services/storage_service.dart';
+import '../widgets/cat_loading.dart';
 import 'crochet_counter_screen.dart';
 import 'settings_screen.dart';
 import 'upgrade_screen.dart';
@@ -28,6 +30,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final StorageService _storageService = StorageService();
   List<CrochetProject> _projects = [];
   bool _isLoading = true;
+  bool _loadFailed = false; // 一覧の読み込みに失敗した（再試行を表示する）
+  String? _lastOpenedProjectId; // 最後に開いたプロジェクト（「続きから」表示用）
   bool _isProcessing = false; // 非同期処理中フラグ
   bool _hasRequestedTracking = false;
   String? _documentsPath; // ドキュメントディレクトリのキャッシュ
@@ -72,11 +76,56 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// 一時的な通知用のスナックバー表示ヘルパー
+  void _showSnackBar(String message, {SnackBarAction? action}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: action == null ? 3 : 6),
+          action: action,
+          // アクション付きでも時間が来たら自動で閉じる
+          persist: false,
+        ),
+      );
+  }
+
+  /// 無料プランの保存上限に達した時の案内
+  void _showSaveLimitDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tr('save_limit_reached')),
+        content: Text(tr('save_limit_message')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(tr('cancel')),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const UpgradeScreen(),
+                ),
+              );
+            },
+            child: Text(tr('upgrade')),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _initDocumentsPath();
-    _loadProjects();
+    _loadProjects(showLoading: true);
     _showUpdateDialogIfNeeded();
   }
 
@@ -184,26 +233,46 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _loadProjects() async {
-    setState(() {
-      _isLoading = true;
-    });
+  /// プロジェクト一覧を読み込む。
+  /// [showLoading] は最初の読み込みと再試行の時だけtrueにする（カウンター画面から
+  /// 戻るたびに一覧をローディング表示へ差し替えると、画面がちらつくため）。
+  Future<void> _loadProjects({bool showLoading = false}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _loadFailed = false;
+      });
+    }
 
     try {
-      final projects = await _storageService.getProjects();
+      final projects = await _storageService.loadProjects();
+      final lastOpenedProjectId =
+          await _storageService.getLastOpenedProjectId();
       if (!mounted) return;
       setState(() {
         _projects = projects;
+        _lastOpenedProjectId = lastOpenedProjectId;
         _isLoading = false;
+        _loadFailed = false;
       });
     } catch (e) {
       logger.e('HomeScreen._loadProjects: プロジェクト読み込みエラー: $e');
       if (!mounted) return;
+      // 回し続けずに、エラーと再試行ボタンを表示する
       setState(() {
         _isLoading = false;
+        _loadFailed = true;
       });
-      _showDialog(tr('projects_load_failed'));
     }
+  }
+
+  /// 「続きから」に表示するプロジェクト（最後に開いたもの。なければ最新のもの）
+  CrochetProject? get _resumeProject {
+    if (_projects.isEmpty) return null;
+    for (final project in _projects) {
+      if (project.id == _lastOpenedProjectId) return project;
+    }
+    return _projects.first;
   }
 
   Future<void> _requestTrackingPermission() async {
@@ -232,32 +301,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 無料プラン制限チェック
     // 注意: トライアル期間中はisPremiumがtrueになるため、制限は適用されません
-    if (!isPremium && _projects.length >= 3) {
+    if (!isPremium && _projects.length >= StorageService.freeProjectLimit) {
       logger.w('HomeScreen._createNewProject: 保存制限に達しました（無料プラン） - トライアル期間外');
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(tr('save_limit_reached')),
-          content: Text(tr('save_limit_message')),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(tr('cancel')),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const UpgradeScreen(),
-                  ),
-                );
-              },
-              child: Text(tr('upgrade')),
-            ),
-          ],
-        ),
-      );
+      _showSaveLimitDialog();
       return;
     }
 
@@ -315,6 +361,15 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
+              key: const ValueKey('duplicate_project_tile'),
+              leading: const Icon(Icons.copy),
+              title: Text(tr('duplicate_project')),
+              onTap: () {
+                Navigator.of(context).pop();
+                _duplicateProject(project);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.picture_as_pdf),
               title: Text(tr('share_pdf')),
               onTap: () async {
@@ -323,6 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
             ListTile(
+              key: const ValueKey('delete_project_tile'),
               leading: const Icon(Icons.delete),
               title: Text(tr('delete_list')),
               onTap: () {
@@ -929,41 +985,138 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Text(tr('cancel')),
           ),
           TextButton(
-            onPressed: () async {
+            key: const ValueKey('delete_project_confirm_button'),
+            onPressed: () {
               Navigator.of(dialogContext).pop();
-
-              setState(() {
-                _isProcessing = true;
-              });
-
-              try {
-                final success = await _storageService.deleteProject(project.id);
-                if (success) {
-                  _loadProjects();
-                  if (mounted) {
-                    _showDialog(tr('project_deleted'));
-                  }
-                } else {
-                  if (mounted) {
-                    _showDialog(tr('project_delete_failed'));
-                  }
-                }
-              } catch (e) {
-                logger.e('削除エラー: $e');
-                if (mounted) {
-                  _showDialog(tr('project_delete_failed'));
-                }
-              } finally {
-                if (mounted) {
-                  setState(() {
-                    _isProcessing = false;
-                  });
-                }
-              }
+              _deleteProjectWithUndo(project);
             },
             child: Text(tr('delete'), style: const TextStyle(color: Colors.red)),
           ),
         ],
+      ),
+    );
+  }
+
+  /// プロジェクトを削除し、直後だけ「元に戻す」で取り消せるようにする
+  Future<void> _deleteProjectWithUndo(CrochetProject project) async {
+    // 一覧からは先に消す（スワイプ削除では、Dismiss済みウィジェットを
+    // ツリーに残すとFlutterのアサーションでクラッシュするため同期的に行う）
+    setState(() {
+      _projects.removeWhere((p) => p.id == project.id);
+    });
+
+    var success = false;
+    try {
+      success = await _storageService.deleteProject(project.id);
+    } catch (e) {
+      logger.e('削除エラー: $e');
+    }
+    if (!mounted) return;
+
+    if (!success) {
+      // 削除に失敗した場合は一覧を再読み込みして復元
+      await _loadProjects();
+      _showDialog(tr('project_delete_failed'));
+      return;
+    }
+
+    _showSnackBar(
+      tr('project_deleted'),
+      action: SnackBarAction(
+        label: tr('undo_action'),
+        onPressed: () => _restoreDeletedProject(project),
+      ),
+    );
+  }
+
+  /// 削除したプロジェクトを元に戻す
+  Future<void> _restoreDeletedProject(CrochetProject project) async {
+    final restored = await _storageService.restoreProject(project);
+    if (!mounted) return;
+    await _loadProjects();
+    if (!restored) {
+      _showDialog(tr('project_restore_failed'));
+    }
+  }
+
+  /// プロジェクトを複製する。編み方ボタン・メモ・目印は引き継ぎ、カウントは0から始める
+  /// （靴下のもう片方や色違いを編む時用）
+  Future<void> _duplicateProject(CrochetProject project) async {
+    final isPremium = context.read<SubscriptionProvider>().isPremium;
+    if (!isPremium && _projects.length >= StorageService.freeProjectLimit) {
+      _showSaveLimitDialog();
+      return;
+    }
+
+    final controller = TextEditingController(
+      text: tr('duplicate_default_title', namedArgs: {'title': project.title}),
+    );
+    final title = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(tr('duplicate_project')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(tr('duplicate_project_message')),
+              const SizedBox(height: 16),
+              TextField(
+                key: const ValueKey('duplicate_title_field'),
+                controller: controller,
+                decoration: InputDecoration(
+                  labelText: tr('project_name'),
+                ),
+                autofocus: true,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(tr('cancel')),
+          ),
+          TextButton(
+            key: const ValueKey('duplicate_confirm_button'),
+            onPressed: () {
+              final newTitle = controller.text.trim();
+              if (newTitle.isNotEmpty) {
+                Navigator.of(dialogContext).pop(newTitle);
+              }
+            },
+            child: Text(tr('duplicate')),
+          ),
+        ],
+      ),
+    );
+    if (title == null || !mounted) return;
+
+    SaveResult? saveResult;
+    final copy = await _storageService.duplicateProject(
+      project,
+      title: title,
+      isPremium: isPremium,
+      onResult: (result) => saveResult = result,
+    );
+    if (!mounted) return;
+
+    if (copy == null) {
+      if (saveResult == SaveResult.limitReached) {
+        _showSaveLimitDialog();
+      } else {
+        _showDialog(tr('duplicate_failed'));
+      }
+      return;
+    }
+
+    await _loadProjects();
+    _showSnackBar(
+      tr('duplicate_done', namedArgs: {'title': copy.title}),
+      action: SnackBarAction(
+        label: tr('open'),
+        onPressed: () => _openProject(copy),
       ),
     );
   }
@@ -1007,11 +1160,15 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(
-              child: CircularProgressIndicator(
-                color: Color(0xFFEC407A),
-              ),
+          ? Center(
+              child: CatLoadingMessage(message: tr('loading')),
             )
+          : _loadFailed
+              ? CatLoadFailedView(
+                  message: tr('projects_load_failed'),
+                  retryLabel: tr('retry'),
+                  onRetry: () => _loadProjects(showLoading: true),
+                )
           : _projects.isEmpty
               ? Center(
                   child: Column(
@@ -1047,9 +1204,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   onRefresh: _loadProjects,
                   child: ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _projects.length,
+                    // 先頭に「続きから」カードを置き、その下にプロジェクト一覧を並べる
+                    itemCount: _projects.length + 1,
                     itemBuilder: (context, index) {
-                      final project = _projects[index];
+                      if (index == 0) {
+                        final resumeProject = _resumeProject;
+                        return resumeProject == null
+                            ? const SizedBox.shrink()
+                            : _buildResumeCard(resumeProject, isDarkMode);
+                      }
+                      final project = _projects[index - 1];
 
                       return Dismissible(
                         key: Key(project.id),
@@ -1091,41 +1255,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           );
                         },
-                        onDismissed: (direction) async {
-                          // Dismiss済みウィジェットをツリーに残さないよう、
-                          // 先に同期的にリストから削除する（残すとFlutterのアサーションでクラッシュ）
-                          setState(() {
-                            _projects.removeWhere((p) => p.id == project.id);
-                            _isProcessing = true;
-                          });
-
-                          try {
-                            final success =
-                                await _storageService.deleteProject(project.id);
-                            if (success) {
-                              if (mounted) {
-                                _showDialog(tr('project_deleted'));
-                              }
-                            } else {
-                              // 削除に失敗した場合は一覧を再読み込みして復元
-                              await _loadProjects();
-                              if (mounted) {
-                                _showDialog(tr('project_delete_failed'));
-                              }
-                            }
-                          } catch (e) {
-                            logger.e('削除エラー: $e');
-                            await _loadProjects();
-                            if (mounted) {
-                              _showDialog(tr('project_delete_failed'));
-                            }
-                          } finally {
-                            if (mounted) {
-                              setState(() {
-                                _isProcessing = false;
-                              });
-                            }
-                          }
+                        onDismissed: (direction) {
+                          _deleteProjectWithUndo(project);
                         },
                         child: Card(
                           margin: const EdgeInsets.only(bottom: 12),
@@ -1218,9 +1349,18 @@ class _HomeScreenState extends State<HomeScreen> {
                                     fontWeight: FontWeight.w500,
                                   ),
                                 ),
+                                if (project.memo.trim().isNotEmpty) ...[
+                                  const SizedBox(height: 4),
+                                  _buildMemoPreview(
+                                    project.memo,
+                                    color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
+                                    maxLines: 1,
+                                  ),
+                                ],
                               ],
                             ),
                             trailing: PopupMenuButton<String>(
+                              key: ValueKey('project_menu_${project.id}'),
                               icon: const Icon(Icons.more_vert),
                               onSelected: (value) {
                                 if (value == 'edit') {
@@ -1259,42 +1399,126 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
         ),
         // ローディングオーバーレイ
-        if (_isProcessing)
-          Container(
-            color: Colors.black.withValues(alpha: 0.5),
-            child: Center(
-              child: Card(
-                elevation: 8,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(32.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(
-                        color: Color(0xFFEC407A),
-                        strokeWidth: 4,
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        tr('processing'),
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: isDarkMode
-                              ? Colors.white
-                              : const Color(0xFF333333),
+        if (_isProcessing) CatLoadingOverlay(message: tr('processing')),
+      ],
+    );
+  }
+
+  /// メモの冒頭を1〜数行で表示する
+  Widget _buildMemoPreview(String memo, {required Color color, required int maxLines}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(Icons.sticky_note_2_outlined, size: 15, color: color),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Text(
+            memo.trim(),
+            maxLines: maxLines,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 13, color: color),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 「続きから」カード。最後に開いた作品の段数・目数・直前の編み方・メモを
+  /// まとめて見せ、1タップで再開できるようにする
+  Widget _buildResumeCard(CrochetProject project, bool isDarkMode) {
+    final lastStitch = StitchInfo.of(project.lastStitch);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Material(
+        key: const ValueKey('resume_card'),
+        color: isDarkMode ? const Color(0xFF880E4F) : const Color(0xFFEC407A),
+        borderRadius: BorderRadius.circular(16),
+        elevation: 3,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _openProject(project),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.play_circle_fill, color: Colors.white, size: 20),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        tr('resume_title'),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  project.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
-              ),
+                const SizedBox(height: 2),
+                Text(
+                  tr('row_stitch_status', namedArgs: {
+                    'row': '${project.currentRow}',
+                    'count': '${project.currentStitchCount}',
+                  }),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (lastStitch != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    tr('resume_last_stitch',
+                        namedArgs: {'stitch': lastStitch.displayName(context)}),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
+                  ),
+                ],
+                if (project.memo.trim().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  _buildMemoPreview(project.memo, color: Colors.white, maxLines: 2),
+                ],
+                const SizedBox(height: 12),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.icon(
+                    key: const ValueKey('resume_button'),
+                    onPressed: () => _openProject(project),
+                    icon: const Icon(Icons.play_arrow),
+                    label: Text(tr('resume_button')),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFFAD1457),
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-      ],
+        ),
+      ),
     );
   }
 }

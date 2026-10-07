@@ -1,10 +1,105 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'apple_entitlement_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:logger/logger.dart';
 
 class SubscriptionProvider extends ChangeNotifier {
+  SubscriptionProvider(
+      {AppleEntitlementReader? appleEntitlementReader,
+      AppleTransactionFinisher? appleTransactionFinisher})
+      : _appleEntitlementReader =
+            appleEntitlementReader ?? AppleEntitlementService.read,
+        _appleTransactionFinisher = appleTransactionFinisher ??
+            AppleEntitlementService.finishUnfinished;
+  final AppleEntitlementReader _appleEntitlementReader;
+  final AppleTransactionFinisher _appleTransactionFinisher;
+
+  /// 完了処理が済んでいない取引を完了させる（iOS）。残っていると同じ商品を購入できない。
+  /// 先に [refreshAppleEntitlement] で利用権を反映してから呼ぶこと。
+  Future<int> finishUnfinishedAppleTransactions() =>
+      _appleTransactionFinisher({yearlyProductId, ...monthlyProductIds})
+          .timeout(const Duration(seconds: 15));
+  bool get usesAppleEntitlements => defaultTargetPlatform == TargetPlatform.iOS;
+  final Map<String, Future<bool>> _purchaseInFlight = {};
+  final Set<String> _completedTransactions = {};
+  Future<bool>? _appleRefresh;
+
+  Future<bool> refreshAppleEntitlement({bool restore = false}) async {
+    // Explicit restore waits for any current read, then always calls AppStore.sync.
+    // Reads triggered by purchase events during restore share its verified result.
+    final running = _appleRefresh;
+    if (running != null) {
+      if (!restore) return running;
+      try {
+        await running;
+      } catch (_) {
+        // An explicit restore can retry a failed background read.
+      }
+    }
+    final refresh = _readAppleEntitlement(restore: restore);
+    _appleRefresh = refresh;
+    try {
+      return await refresh;
+    } finally {
+      if (identical(_appleRefresh, refresh)) _appleRefresh = null;
+    }
+  }
+
+  Future<bool> _readAppleEntitlement({required bool restore}) async {
+    final entitlement = await _appleEntitlementReader(restore: restore)
+        .timeout(Duration(seconds: restore ? 60 : 15));
+    _isInTrialPeriod = false;
+    _trialStartDate = null;
+    _trialEndDate = null;
+    await setPremium(entitlement.active,
+        subscriptionId: entitlement.productId,
+        expiryDate: entitlement.expiresAt);
+    return entitlement.active;
+  }
+
+  /// 画面と起動時リスナーの二重処理をまとめ、利用権の確認後に完了通知する。
+  Future<bool> handleStorePurchase(PurchaseDetails purchase) async {
+    if (purchase.status != PurchaseStatus.purchased &&
+        purchase.status != PurchaseStatus.restored) {
+      return false;
+    }
+    if (purchase.productID != yearlyProductId &&
+        !monthlyProductIds.contains(purchase.productID)) {
+      return false;
+    }
+    final key =
+        '${purchase.productID}:${purchase.purchaseID}:${purchase.transactionDate}';
+    final running = _purchaseInFlight[key];
+    if (running != null) return running;
+    final handling = _applyStorePurchase(purchase, key);
+    _purchaseInFlight[key] = handling;
+    try {
+      return await handling;
+    } finally {
+      _purchaseInFlight.remove(key);
+    }
+  }
+
+  Future<bool> _applyStorePurchase(PurchaseDetails purchase, String key) async {
+    if (usesAppleEntitlements) {
+      await refreshAppleEntitlement();
+    } else {
+      // Androidの既存処理。正確な期限確認にはGoogle Play側の検証が別途必要。
+      final days = purchase.productID == yearlyProductId ? 365 : 30;
+      await setPremium(true,
+          subscriptionId: purchase.productID,
+          expiryDate: DateTime.now().add(Duration(days: days)));
+    }
+    if (purchase.pendingCompletePurchase &&
+        !_completedTransactions.contains(key)) {
+      await InAppPurchase.instance.completePurchase(purchase);
+      _completedTransactions.add(key);
+    }
+    return isPremium;
+  }
+
   final Logger logger = Logger();
   StreamSubscription<List<PurchaseDetails>>? _storeSubscription;
 
@@ -112,42 +207,9 @@ class SubscriptionProvider extends ChangeNotifier {
 
   Future<void> _handleStorePurchase(PurchaseDetails purchase) async {
     try {
-      if (purchase.status == PurchaseStatus.purchased ||
-          purchase.status == PurchaseStatus.restored) {
-        DateTime? newExpiry;
-        if (purchase.productID == yearlyProductId) {
-          newExpiry = DateTime.now().add(const Duration(days: 365));
-        } else if (monthlyProductIds.contains(purchase.productID)) {
-          newExpiry = DateTime.now().add(const Duration(days: 30));
-        }
-
-        if (newExpiry != null) {
-          // 有効期限は延長方向にのみ更新する（既存の長い期限を短縮しない）
-          final currentExpiry = _subscriptionExpiryDate;
-          if (!_isPremium ||
-              currentExpiry == null ||
-              newExpiry.isAfter(currentExpiry)) {
-            logger.i(
-                'SubscriptionProvider: ストアのトランザクションからプレミアムを再同期 (${purchase.productID})');
-            await setPremium(
-              true,
-              subscriptionId: purchase.productID,
-              expiryDate: newExpiry,
-            );
-          }
-        }
-      }
-
-      if (purchase.pendingCompletePurchase) {
-        try {
-          await InAppPurchase.instance.completePurchase(purchase);
-        } catch (e) {
-          // 他のリスナー（アップグレード画面）が先に完了させた場合など
-          logger.w('SubscriptionProvider: completePurchaseに失敗: $e');
-        }
-      }
+      await handleStorePurchase(purchase);
     } catch (e, stackTrace) {
-      logger.e('SubscriptionProvider._handleStorePurchase: 購入イベント処理エラー',
+      logger.e('Store entitlement verification failed',
           error: e, stackTrace: stackTrace);
     }
   }
@@ -169,7 +231,7 @@ class SubscriptionProvider extends ChangeNotifier {
       final expiryString = prefs.getString(_expiryDateKey);
 
       // トライアル期間情報を読み込み
-      await _loadTrialStatus(prefs);
+      if (!usesAppleEntitlements) await _loadTrialStatus(prefs);
 
       if (expiryString != null) {
         _subscriptionExpiryDate = DateTime.parse(expiryString);
@@ -177,6 +239,14 @@ class SubscriptionProvider extends ChangeNotifier {
 
       // 有効期限をチェック
       await _checkSubscriptionValidity();
+      if (usesAppleEntitlements) {
+        try {
+          await refreshAppleEntitlement();
+        } catch (e) {
+          // 通信・StoreKitエラーで既存の有効なローカル情報や作品を破壊しない。
+          logger.w('Apple entitlement refresh failed: $e');
+        }
+      }
 
       notifyListeners();
     } catch (e, stackTrace) {
@@ -243,6 +313,7 @@ class SubscriptionProvider extends ChangeNotifier {
         return {'available': false, 'error': 'ストアが利用できません'};
       }
 
+      if (usesAppleEntitlements) await refreshAppleEntitlement();
       // 現在のサブスクリプション状態を返す
       return {
         'available': true,
@@ -282,6 +353,8 @@ class SubscriptionProvider extends ChangeNotifier {
 
   // サブスクリプションが有効かどうかをチェック
   bool isSubscriptionValid() {
+    // iOSは現在のStoreKit利用権を優先する（猶予期間も含む）。
+    if (usesAppleEntitlements) return _isPremium;
     // トライアル期間中の場合
     if (_isInTrialPeriod && isTrialActive) {
       return true;

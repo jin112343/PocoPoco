@@ -8,6 +8,7 @@ import 'feedback_dialog.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
 import '../services/theme_provider.dart';
+import '../services/user_prefs_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import '../models/crochet_project.dart';
 
@@ -276,6 +277,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: Text(tr('dark_mode')),
                 subtitle: Text(themeModeText),
                 onTap: () => _showThemeModeDialog(context, themeProvider),
+              );
+            },
+          ),
+          // 片手操作用: 「段完成」などのボタンを左右どちら側に寄せるか
+          ValueListenableBuilder<bool>(
+            valueListenable: UserPrefsService.leftHanded,
+            builder: (context, leftHanded, child) {
+              return SwitchListTile(
+                key: const ValueKey('left_handed_switch'),
+                secondary: const Icon(Icons.back_hand_outlined),
+                title: Text(tr('left_handed_layout')),
+                subtitle: Text(tr('left_handed_layout_desc')),
+                value: leftHanded,
+                onChanged: UserPrefsService.setLeftHanded,
               );
             },
           ),

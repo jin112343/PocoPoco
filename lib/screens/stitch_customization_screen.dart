@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import '../models/crochet_stitch.dart';
+import '../models/premium_stitches.dart';
 import '../services/stitch_settings_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
 import '../services/subscription_provider.dart';
+import '../widgets/cat_loading.dart';
 
 class StitchCustomizationScreen extends StatefulWidget {
   final List<dynamic>? projectStitches; // プロジェクト固有の編み目設定
@@ -47,8 +49,11 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
     final wasPremium = _wasPremium;
 
     if (wasPremium != null && wasPremium && !isPremium) {
-      // プレミアムから解約された場合
-      _resetToDefaultStitches();
+      // プレミアムから解約された場合は編集をやめて閉じる。
+      // 保存済みのボタン設定は書き換えない（再加入・購入復元で元に戻せるようにする）
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop(false);
+      });
     } else if (wasPremium != null && !wasPremium && isPremium) {
       // プレミアムにアップグレードされた場合
       _loadStitches(); // 編み目設定を再読み込み
@@ -73,38 +78,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
           ],
         ),
       );
-    }
-  }
-
-  void _resetToDefaultStitches() async {
-    if (_isProcessing) return;
-
-    setState(() {
-      _isProcessing = true;
-    });
-
-    try {
-      final defaultStitches = StitchSettingsService.getDefaultStitches();
-      await StitchSettingsService.saveGlobalStitches(defaultStitches);
-
-      setState(() {
-        _stitches = defaultStitches;
-      });
-
-      if (mounted) {
-        _showDialog(tr('premium_canceled_reset_stitches'));
-      }
-    } catch (e) {
-      debugPrint('編み目のリセットに失敗: $e');
-      if (mounted) {
-        _showDialog(tr('stitch_reset_failed'));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
-      }
     }
   }
 
@@ -133,178 +106,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
   }
 
   // プレミアム編み目のリスト
-  final List<Map<String, String>> _premiumStitches = [
-    {
-      'nameJa': 'うね編み',
-      'nameEn': 'Wave Stitch',
-      'image': 'assets/images/うね編み.png'
-    },
-    {
-      'nameJa': 'ねじれ細編み目',
-      'nameEn': 'Twisted Single Crochet',
-      'image': 'assets/images/twisted_single_crochet.png'
-    },
-    {
-      'nameJa': '長編み１目交差',
-      'nameEn': 'Double Crochet Cross',
-      'image': 'assets/images/長編み１目交差.png'
-    },
-    {
-      'nameJa': 'バック細編み',
-      'nameEn': 'Back Single Crochet',
-      'image': 'assets/images/back_single_crochet.png'
-    },
-    {
-      'nameJa': '四つ巻き長編み目',
-      'nameEn': 'Quadruple Crochet',
-      'image': 'assets/images/四つ巻き長編み目.png'
-    },
-    {
-      'nameJa': '三つ巻き長編み目',
-      'nameEn': 'Triple Crochet',
-      'image': 'assets/images/三つ巻き長編み目.png'
-    },
-    {
-      'nameJa': '中長編み１目交差',
-      'nameEn': 'Half Double Crochet Cross',
-      'image': 'assets/images/中長編み１目交差.png'
-    },
-    {
-      'nameJa': '長編み３目の玉編み目',
-      'nameEn': 'Double Crochet 3 Bobble',
-      'image': 'assets/images/長編み３目の玉編み目.png'
-    },
-    {
-      'nameJa': '長編み１目左上３目交差',
-      'nameEn': 'Double Crochet Left Cross 3',
-      'image': 'assets/images/長編み１目左上３目交差.png'
-    },
-    {
-      'nameJa': '長編み１目右上交差',
-      'nameEn': 'Double Crochet Right Cross',
-      'image': 'assets/images/長編み１目右上交差.png'
-    },
-    {
-      'nameJa': '長編み１目右上３目交差',
-      'nameEn': 'Double Crochet Right Cross 3',
-      'image': 'assets/images/長編み１目右上３目交差.png'
-    },
-    {
-      'nameJa': '中長編み３目の玉編み目',
-      'nameEn': 'Half Double Crochet 3 Bobble',
-      'image': 'assets/images/中長編み３目の玉編み目.png'
-    },
-    {
-      'nameJa': '長々編み５目の玉編み目',
-      'nameEn': 'Treble Crochet 5 Bobble',
-      'image': 'assets/images/長々編み５目の玉編み目.png'
-    },
-    {
-      'nameJa': '変わり玉編み目＜中長編み3目＞',
-      'nameEn': 'Special Bobble Half Double Crochet 3',
-      'image': 'assets/images/変わり玉編み目＜中長編み3目＞.png'
-    },
-    {
-      'nameJa': '変わり玉編み目＜長編み3目＞',
-      'nameEn': 'Special Bobble Double Crochet 3',
-      'image': 'assets/images/変わり玉編み目＜長編み3目＞.png'
-    },
-    {
-      'nameJa': '引き出し玉編み目',
-      'nameEn': 'Popcorn Stitch',
-      'image': 'assets/images/引き出し玉編み目.png'
-    },
-    {
-      'nameJa': '細こま編み２目編み入れる',
-      'nameEn': 'Single Crochet 2 Increase',
-      'image': 'assets/images/細こま編み２目編み入れる.png'
-    },
-    {
-      'nameJa': '中長編み５目のパプコーン編み',
-      'nameEn': 'Half Double Crochet 5 Popcorn',
-      'image': 'assets/images/hdc_5_popcorn.png'
-    },
-    {
-      'nameJa': '長編み５目のパプコーン編み',
-      'nameEn': 'Double Crochet 5 Popcorn',
-      'image': 'assets/images/dc_5_popcorn.png'
-    },
-    {
-      'nameJa': '長々編み６目のパプコーン編み目',
-      'nameEn': 'Treble Crochet 6 Popcorn',
-      'image': 'assets/images/tc_6_popcorn.png'
-    },
-    {
-      'nameJa': '細こま編み3目編み入れる',
-      'nameEn': 'Single Crochet 3 Increase',
-      'image': 'assets/images/細こま編み3目編み入れる.png'
-    },
-    {
-      'nameJa': '長編み3目編み入れる',
-      'nameEn': 'Double Crochet 3 Increase',
-      'image': 'assets/images/長編み3目編み入れる.png'
-    },
-    {
-      'nameJa': '中長編み2目編み入れる',
-      'nameEn': 'Half Double Crochet 2 Increase',
-      'image': 'assets/images/中長編み2目編み入れる.png'
-    },
-    {
-      'nameJa': '細こま編み２目一度',
-      'nameEn': 'Single Crochet 2 Together',
-      'image': 'assets/images/細こま編み２目一度.png'
-    },
-    {
-      'nameJa': '中長編み3目編み入れる',
-      'nameEn': 'Half Double Crochet 3 Increase',
-      'image': 'assets/images/中長編み3目編み入れる.png'
-    },
-    {
-      'nameJa': '長編み２目編み入れる',
-      'nameEn': 'Double Crochet 2 Increase',
-      'image': 'assets/images/長編み２目編み入れる.png'
-    },
-    {
-      'nameJa': '中長編み2目一度',
-      'nameEn': 'Half Double Crochet 2 Together',
-      'image': 'assets/images/中長編み2目一度.png'
-    },
-    {
-      'nameJa': '細こま編み3目一度',
-      'nameEn': 'Single Crochet 3 Together',
-      'image': 'assets/images/細こま編み3目一度.png'
-    },
-    {
-      'nameJa': '中長編み３目一度',
-      'nameEn': 'Half Double Crochet 3 Together',
-      'image': 'assets/images/中長編み３目一度.png'
-    },
-    {
-      'nameJa': '長編み２目一度',
-      'nameEn': 'Double Crochet 2 Together',
-      'image': 'assets/images/長編み２目一度.png'
-    },
-    {
-      'nameJa': '長編み3目一度',
-      'nameEn': 'Double Crochet 3 Together',
-      'image': 'assets/images/長編み3目一度.png'
-    },
-    {
-      'nameJa': '細編み2目編み入れる',
-      'nameEn': 'Single Crochet 2 Increase',
-      'image': 'assets/images/細編み2目編み入れる.png'
-    },
-    {
-      'nameJa': '細編み2目一度',
-      'nameEn': 'Single Crochet 2 Together',
-      'image': 'assets/images/細編み2目一度.png'
-    },
-    {
-      'nameJa': '立ち上がり',
-      'nameEn': 'Turning Chain',
-      'image': 'assets/images/tachiagari.png'
-    },
-  ];
+  final List<Map<String, String>> _premiumStitches = premiumStitchCatalog;
 
   String _getStitchName(dynamic stitch) {
     try {
@@ -331,7 +133,6 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
     return Stack(
       children: [
         Scaffold(
@@ -506,39 +307,7 @@ class _StitchCustomizationScreenState extends State<StitchCustomizationScreen> {
       ),
         ),
         // ローディングオーバーレイ
-        if (_isProcessing)
-          Container(
-            color: Colors.black.withValues(alpha: 0.5),
-            child: Center(
-              child: Card(
-                elevation: 8,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(32.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(
-                        color: Color(0xFFEC407A),
-                        strokeWidth: 4,
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        tr('processing'),
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: isDarkMode ? Colors.white : const Color(0xFF333333),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
+        if (_isProcessing) CatLoadingOverlay(message: tr('processing')),
       ],
     );
   }

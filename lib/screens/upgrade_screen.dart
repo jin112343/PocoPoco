@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:provider/provider.dart';
 import 'package:confetti/confetti.dart';
 import '../services/subscription_provider.dart';
-import 'home_screen.dart';
+import '../widgets/cat_loading.dart';
+import '../widgets/paywall_widgets.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'terms_screen.dart';
 import 'privacy_policy_screen.dart';
 
@@ -17,22 +20,34 @@ class UpgradeScreen extends StatefulWidget {
   State<UpgradeScreen> createState() => _UpgradeScreenState();
 }
 
-class _UpgradeScreenState extends State<UpgradeScreen>
-    with TickerProviderStateMixin {
+class _UpgradeScreenState extends State<UpgradeScreen> {
   final InAppPurchase _iap = InAppPurchase.instance;
   StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   List<ProductDetails> _products = [];
   bool _isAvailable = false;
   bool _loading = true;
+  bool _queryingStore = false;
   bool _purchasePending = false;
   bool _restorePending = false;
+  // 復元リクエストのあと、実際に購入が見つかったか
+  bool _restoredAnyPurchase = false;
+  // 復元結果がストアから届くのを待つ時間
+  static const _restoreResultWait = Duration(seconds: 3);
   String? _error;
   // 購入処理のタイムアウト用タイマー
   static const _purchaseTimeoutDuration = Duration(seconds: 60);
-  String? _activePlan;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
+  int _operation = 0;
+  bool _checkingStatus = false;
+  // 「処理中」の表示を、利用者が自分で閉じられるようになるまでの時間。
+  // ストアが応答しない時でも、この画面から出られなくなることがないようにする
+  static const _processingEscapeDelay = Duration(seconds: 6);
+  Timer? _processingEscapeTimer;
+  bool _processingEscapable = false;
+  // 購入完了の案内を、通知と購入シート後の確認の両方で二重に出さないための印
+  bool _purchaseSuccessAnnounced = false;
+  // 完了処理が済んでいない取引が残っている時にStoreKitプラグインが返すエラー
+  static const _unfinishedTransactionErrorCode =
+      'storekit_duplicate_product_object';
 
   /// ダイアログ表示のヘルパー
   void _showDialog(String message) {
@@ -52,8 +67,7 @@ class _UpgradeScreenState extends State<UpgradeScreen>
       );
     }
   }
-  late AnimationController _pulseController;
-  late Animation<double> _pulseAnimation;
+
   late ConfettiController _confettiController;
 
   static List<String> get _kProductIds {
@@ -76,1642 +90,1200 @@ class _UpgradeScreenState extends State<UpgradeScreen>
     _initAnimations();
     _initStoreInfo();
     _listenToPurchaseUpdated();
-    _checkExistingSubscription();
   }
 
   void _initAnimations() {
-    _animationController = AnimationController(
-      duration: const Duration(milliseconds: 800),
-      vsync: this,
-    );
-    _fadeAnimation = Tween<double>(
-      begin: 0.0,
-      end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
-    ));
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOutCubic,
-    ));
-    _animationController.forward();
-
-    // パルスアニメーション（無料トライアルバナー用）
-    _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
-      vsync: this,
-    );
-    _pulseAnimation = Tween<double>(
-      begin: 1.0,
-      end: 1.05,
-    ).animate(CurvedAnimation(
-      parent: _pulseController,
-      curve: Curves.easeInOut,
-    ));
-    _pulseController.repeat(reverse: true);
-
+    // 表示時のアニメーションは各部品（paywall_widgets.dart）が自分で再生する。
     // Confettiコントローラー
-    _confettiController = ConfettiController(duration: const Duration(seconds: 3));
+    _confettiController =
+        ConfettiController(duration: const Duration(seconds: 3));
   }
 
   @override
   void dispose() {
+    _operation++;
     _cancelPurchaseTimeout();
     // 画面破棄後に購入イベントが届いてsetStateが呼ばれるのを防ぐ
     _purchaseSubscription?.cancel();
-    _animationController.dispose();
-    _pulseController.dispose();
     _confettiController.dispose();
     super.dispose();
   }
 
-  // 購入情報の復元
+  void _showFailure(String message) {
+    if (!mounted) return;
+    setState(() => _error = message);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _restorePurchases() async {
+    if (_isProcessing) return;
+    final operation = ++_operation;
+    final provider = context.read<SubscriptionProvider>();
     setState(() {
       _restorePending = true;
+      _restoredAnyPurchase = false;
       _error = null;
     });
-
     _startPurchaseTimeout();
-
     try {
-      // 復元結果は purchaseStream に PurchaseStatus.restored として届く
-      // （restorePurchases()の完了は「リクエスト送信完了」にすぎない）
-      await _iap.restorePurchases();
-    } catch (e) {
-      _cancelPurchaseTimeout();
-      if (mounted) {
-        setState(() {
-          _error = tr('restore_failed', namedArgs: {'error': '$e'});
-        });
+      if (provider.usesAppleEntitlements) {
+        _restoredAnyPurchase =
+            await provider.refreshAppleEntitlement(restore: true);
+      } else {
+        await _iap.restorePurchases().timeout(_purchaseTimeoutDuration);
+        await Future<void>.delayed(_restoreResultWait);
+      }
+      if (!mounted || operation != _operation) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(tr(_restoredAnyPurchase
+              ? 'paywall_restore_complete'
+              : 'restore_nothing_found'))));
+    } catch (_) {
+      if (mounted && operation == _operation) {
+        _showFailure(tr('paywall_restore_error'));
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _restorePending = false;
-        });
+      if (mounted && operation == _operation) {
+        _cancelPurchaseTimeout();
+        setState(() => _restorePending = false);
       }
     }
   }
 
   void _listenToPurchaseUpdated() {
-    _purchaseSubscription =
-        _iap.purchaseStream.listen((List<PurchaseDetails> purchaseDetailsList) {
-      _handlePurchaseUpdates(purchaseDetailsList);
-    });
-  }
-
-  void _handlePurchaseUpdates(List<PurchaseDetails> purchaseDetailsList) {
-    for (final purchaseDetails in purchaseDetailsList) {
-      _processPurchaseDetails(purchaseDetails);
-    }
-  }
-
-  Future<void> _processPurchaseDetails(PurchaseDetails purchaseDetails) async {
-    if (purchaseDetails.status == PurchaseStatus.pending) {
-      // 購入処理中
-      if (mounted) {
-        setState(() {
-          _purchasePending = true;
-        });
-      }
-    } else {
-      // 購入処理完了（成功・エラー問わず）タイムアウトタイマーを解除
-      _cancelPurchaseTimeout();
-
-      if (purchaseDetails.status == PurchaseStatus.canceled) {
-        // キャンセル
-        if (mounted) {
-          setState(() {
-            _purchasePending = false;
-            _restorePending = false;
-            _error = null;
-          });
+    _purchaseSubscription = _iap.purchaseStream.listen(
+      (purchases) {
+        for (final purchase in purchases) {
+          unawaited(_processPurchaseDetails(purchase));
         }
-        return;
-      } else if (purchaseDetails.status == PurchaseStatus.error) {
-        // エラー
-        if (mounted) {
-          setState(() {
-            _error = purchaseDetails.error?.message ?? tr('purchase_error');
-            _purchasePending = false;
-          });
-        }
-      } else if (purchaseDetails.status == PurchaseStatus.purchased ||
-          purchaseDetails.status == PurchaseStatus.restored) {
-        // 購入成功または復元成功
-        // プレミアム状態を更新
+      },
+      onError: (Object error) {
+        _operation++;
+        _cancelPurchaseTimeout();
         if (!mounted) return;
-        final subscriptionProvider = context.read<SubscriptionProvider>();
-
-        if (purchaseDetails.productID == 'yearly_sub') {
-          // 年間プランの場合、トライアルを開始（使用済みならfalseが返る）
-          bool trialStarted = false;
-          if (!subscriptionProvider.hasUsedTrial) {
-            trialStarted = await subscriptionProvider.startFreeTrial();
-          }
-          if (!trialStarted) {
-            // トライアル使用済みの場合は通常のサブスクリプションとして処理
-            final expiryDate = DateTime.now().add(const Duration(days: 365));
-            await subscriptionProvider.setPremium(
-              true,
-              subscriptionId: purchaseDetails.productID,
-              expiryDate: expiryDate,
-            );
-            // 課金が発生するのでconfettiを発射
-            if (mounted) {
-              _confettiController.play();
-            }
-          }
-        } else if (purchaseDetails.productID == 'monthly_sub' ||
-            purchaseDetails.productID == 'monthly-sub') {
-          // 月額プランの場合は通常のサブスクリプションとして処理
-          final expiryDate = DateTime.now().add(const Duration(days: 30));
-          await subscriptionProvider.setPremium(
-            true,
-            subscriptionId: purchaseDetails.productID,
-            expiryDate: expiryDate,
-          );
-          // 月額プランは課金が発生するのでconfettiを発射
-          if (mounted) {
-            _confettiController.play();
-          }
-        }
-
-        if (!mounted) {
-          // 画面が閉じられていても購入トランザクションは完了させる
-          if (purchaseDetails.pendingCompletePurchase) {
-            try {
-              await _iap.completePurchase(purchaseDetails);
-            } catch (e) {
-              debugPrint('completePurchase failed: $e');
-            }
-          }
-          return;
-        }
-
         setState(() {
-          _activePlan = purchaseDetails.productID;
           _purchasePending = false;
           _restorePending = false;
-          _error = null;
         });
+        _showFailure(tr('paywall_purchase_error'));
+      },
+    );
+  }
 
-        // 購入完了を通知
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('upgraded_to_premium')),
-              backgroundColor: Colors.green,
-            ),
-          );
-
-          // 新規購入の場合のみ画面を戻す（復元の場合は戻さない）
-          if (purchaseDetails.status == PurchaseStatus.purchased) {
-            // 少し待ってから前の画面に戻る
-            await Future.delayed(const Duration(milliseconds: 500));
-            if (mounted) {
-              // 設定画面から来た場合は設定画面に戻る、それ以外はホーム画面に戻る
-              if (Navigator.of(context).canPop()) {
-                Navigator.of(context).pop();
-              } else {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(
-                    builder: (context) => const HomeScreen(),
-                  ),
-                  (route) => false,
-                );
-              }
-            }
-          }
-        }
+  Future<void> _processPurchaseDetails(PurchaseDetails purchase) async {
+    if (purchase.productID != SubscriptionProvider.yearlyProductId &&
+        !SubscriptionProvider.monthlyProductIds.contains(purchase.productID)) {
+      return;
+    }
+    if (!mounted) return;
+    if (purchase.status == PurchaseStatus.pending) {
+      // 承認待ち（保護者の承認・支払い方法の確認など）。結果は後から届いて
+      // 自動で反映されるので、この画面は待たせない
+      _operation++;
+      _cancelPurchaseTimeout();
+      setState(() => _purchasePending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr('paywall_purchase_waiting'))));
+      return;
+    }
+    if (purchase.status == PurchaseStatus.canceled ||
+        purchase.status == PurchaseStatus.error) {
+      _operation++;
+      _cancelPurchaseTimeout();
+      setState(() {
+        _purchasePending = false;
+        _restorePending = false;
+      });
+      if (purchase.status == PurchaseStatus.error) {
+        _showFailure(tr('paywall_purchase_error'));
       }
-
-      if (purchaseDetails.pendingCompletePurchase) {
-        try {
-          await _iap.completePurchase(purchaseDetails);
-        } catch (e) {
-          // SubscriptionProvider側のリスナーが先に完了させた場合など
-          debugPrint('completePurchase failed: $e');
-        }
+      return;
+    }
+    if (purchase.status != PurchaseStatus.purchased &&
+        purchase.status != PurchaseStatus.restored) {
+      return;
+    }
+    try {
+      final active = await context
+          .read<SubscriptionProvider>()
+          .handleStorePurchase(purchase);
+      if (!mounted) return;
+      _restoredAnyPurchase = active;
+      // 明示復元はリクエスト全体が終わるまで再操作を許可しない。
+      if (!_restorePending) _cancelPurchaseTimeout();
+      setState(() {
+        _purchasePending = false;
+        _error = null;
+      });
+      if (!active) {
+        _showFailure(tr('paywall_verification_pending'));
+      } else if (purchase.status == PurchaseStatus.purchased) {
+        _announcePurchaseSuccess();
       }
+    } catch (_) {
+      if (!mounted) return;
+      if (!_restorePending) _cancelPurchaseTimeout();
+      setState(() => _purchasePending = false);
+      _showFailure(tr('paywall_verification_pending'));
     }
   }
 
   Future<void> _initStoreInfo() async {
-    final bool isAvailable = await _iap.isAvailable();
-    if (!mounted) return;
-    if (!isAvailable) {
+    if (!mounted || _queryingStore) return;
+    _queryingStore = true;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final response = await (() async {
+        if (!await _iap.isAvailable()) return null;
+        return await _iap.queryProductDetails(_kProductIds.toSet());
+      })()
+          .timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      setState(() {
+        _isAvailable = response != null && response.error == null;
+        // StoreKit returns List<AppStoreProduct2Details>. Keep each native
+        // product, but normalize the list type so firstWhere(orElse:) accepts
+        // a ProductDetails callback when the plans are rendered.
+        _products = _isAvailable
+            ? List<ProductDetails>.of(response!.productDetails)
+            : <ProductDetails>[];
+      });
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _isAvailable = false;
         _products = [];
-        _loading = false;
       });
-      return;
+    } finally {
+      _queryingStore = false;
+      if (mounted) setState(() => _loading = false);
     }
-    final ProductDetailsResponse response =
-        await _iap.queryProductDetails(_kProductIds.toSet());
-    if (!mounted) return;
-    setState(() {
-      _isAvailable = true;
-      _products = response.productDetails;
-      _loading = false;
-    });
   }
 
-  void _buy(ProductDetails product) {
-    if (_purchasePending) return; // 二重購入防止
-    if (product.id.isEmpty) {
-      setState(() {
-        _error = tr('product_info_unavailable');
-      });
+  void _announcePurchaseSuccess() {
+    if (!mounted || _purchaseSuccessAnnounced) return;
+    _purchaseSuccessAnnounced = true;
+    if (!MediaQuery.disableAnimationsOf(context)) {
+      _confettiController.play();
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(tr('upgraded_to_premium'))));
+  }
+
+  /// 購入に失敗した時の案内。原因を調べられるよう、ストアのエラーコードを添える
+  String _purchaseErrorMessage(Object error) {
+    final message = tr('paywall_purchase_error');
+    return error is PlatformException ? '$message (${error.code})' : message;
+  }
+
+  Future<bool> _requestPurchase(ProductDetails product) => _iap
+      .buyNonConsumable(purchaseParam: PurchaseParam(productDetails: product))
+      .timeout(_purchaseTimeoutDuration);
+
+  Future<void> _buy(ProductDetails product) async {
+    final provider = context.read<SubscriptionProvider>();
+    if (_isProcessing || _loading || !_isAvailable || provider.isPremium) {
       return;
     }
+    if (!_kProductIds.contains(product.id)) return;
+    final operation = ++_operation;
+    _purchaseSuccessAnnounced = false;
     setState(() {
       _purchasePending = true;
       _error = null;
     });
-
-    // タイムアウト処理：一定時間応答がなければ自動解除
     _startPurchaseTimeout();
-
-    final PurchaseParam purchaseParam = PurchaseParam(productDetails: product);
-
     try {
-      if (product.id == 'monthly_sub' ||
-          product.id == 'monthly-sub' ||
-          product.id == 'yearly_sub') {
-        // サブスクリプション商品 - buyNonConsumableを使用
-        // （buyConsumableだとAndroidで購入が消費されサブスクとして扱われない）
-        _iap.buyNonConsumable(purchaseParam: purchaseParam);
-      } else {
-        _cancelPurchaseTimeout();
-        setState(() {
-          _error = tr('invalid_plan');
-          _purchasePending = false;
-        });
+      bool started;
+      try {
+        started = await _requestPurchase(product);
+      } on PlatformException catch (error) {
+        if (error.code != _unfinishedTransactionErrorCode ||
+            !provider.usesAppleEntitlements) {
+          rethrow;
+        }
+        // 完了処理が済んでいない取引が残っていると、同じ商品を購入できない。
+        // ストアの利用権を反映して取引を完了させてから、もう一度だけ購入を試みる
+        final active = await provider.refreshAppleEntitlement();
+        await provider.finishUnfinishedAppleTransactions();
+        if (!mounted || operation != _operation) return;
+        if (active) {
+          // 残っていた取引が有効な契約だった（すでに購入できている）
+          _cancelPurchaseTimeout();
+          setState(() => _purchasePending = false);
+          _announcePurchaseSuccess();
+          return;
+        }
+        started = await _requestPurchase(product);
       }
-    } catch (e) {
+      if (!mounted || operation != _operation) return;
+      if (!started) {
+        _cancelPurchaseTimeout();
+        setState(() => _purchasePending = false);
+        _showFailure(tr('paywall_purchase_error'));
+        return;
+      }
+      if (provider.usesAppleEntitlements) {
+        await _settleApplePurchase(operation);
+      }
+    } catch (error) {
+      provider.logger.w('購入を開始できませんでした: $error');
+      if (!mounted || operation != _operation) return;
       _cancelPurchaseTimeout();
-      setState(() {
-        _error = tr('purchase_process_error', namedArgs: {'error': '$e'});
-        _purchasePending = false;
-      });
+      setState(() => _purchasePending = false);
+      _showFailure(_purchaseErrorMessage(error));
     }
   }
 
-  Timer? _purchaseTimeoutTimer;
+  /// iOS: 購入シートが閉じたあとの後始末。
+  ///
+  /// StoreKit 2 では、購入の呼び出しは購入シートが閉じてから戻る。購入できていれば
+  /// 通知（purchaseStream）でも反映されるが、キャンセルや承認待ちでは通知が
+  /// 届かないことがある。ストアが検証した利用権を確認して、待機を必ず終える。
+  Future<void> _settleApplePurchase(int operation) async {
+    final provider = context.read<SubscriptionProvider>();
+    var active = false;
+    try {
+      active = await provider.refreshAppleEntitlement();
+    } catch (error) {
+      provider.logger.w('購入後の利用権の確認に失敗しました: $error');
+    }
+    if (!mounted || operation != _operation || !_purchasePending) return;
+    _cancelPurchaseTimeout();
+    setState(() => _purchasePending = false);
+    if (active) _announcePurchaseSuccess();
+  }
 
+  /// 「処理中」の表示を利用者が閉じる。
+  ///
+  /// 進行中の購入や復元を取り消すものではない。あとから結果が届いた場合は、
+  /// 通知（purchaseStream）や次回起動時の確認で反映される。
+  void _dismissProcessing() {
+    _operation++;
+    _cancelPurchaseTimeout();
+    if (!mounted) return;
+    setState(() {
+      _purchasePending = false;
+      _restorePending = false;
+      _checkingStatus = false;
+    });
+  }
+
+  Timer? _purchaseTimeoutTimer;
   void _startPurchaseTimeout() {
     _cancelPurchaseTimeout();
     _purchaseTimeoutTimer = Timer(_purchaseTimeoutDuration, () {
-      if (mounted && (_purchasePending || _restorePending)) {
-        setState(() {
-          _purchasePending = false;
-          _restorePending = false;
-          _error = tr('purchase_timeout');
-        });
-      }
+      if (!mounted || !_isProcessing) return;
+      _operation++;
+      _cancelPurchaseTimeout();
+      setState(() {
+        _purchasePending = false;
+        _restorePending = false;
+        _checkingStatus = false;
+      });
+      _showFailure(tr('purchase_timeout'));
+    });
+    // 少し待っても終わらなければ、利用者が自分で閉じられるようにする
+    _processingEscapeTimer = Timer(_processingEscapeDelay, () {
+      if (!mounted || !_isProcessing) return;
+      setState(() => _processingEscapable = true);
     });
   }
 
   void _cancelPurchaseTimeout() {
     _purchaseTimeoutTimer?.cancel();
     _purchaseTimeoutTimer = null;
+    _processingEscapeTimer?.cancel();
+    _processingEscapeTimer = null;
+    _processingEscapable = false;
   }
 
-  Widget _buildFeatureItem(String icon, String title, String description, {bool isDarkMode = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEC407A).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(
-              Icons.check_circle,
-              color: Color(0xFFEC407A),
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
+  bool get _isProcessing =>
+      _purchasePending || _restorePending || _checkingStatus;
+  String? _selectedPlanId;
+
+  PaywallPalette get _palette => PaywallPalette.of(context);
+
+  List<ProductDetails> get _plans {
+    final plans = _products
+        .where((p) =>
+            p.id == 'yearly_sub' ||
+            p.id == 'monthly_sub' ||
+            p.id == 'monthly-sub')
+        .toList();
+    plans.sort((a, b) =>
+        (a.id == 'yearly_sub' ? 0 : 1).compareTo(b.id == 'yearly_sub' ? 0 : 1));
+    return plans;
+  }
+
+  ProductDetails? get _selectedProduct {
+    final plans = _plans;
+    if (plans.isEmpty) return null;
+    final provider = context.read<SubscriptionProvider>();
+    final selectedId =
+        provider.isPremium ? provider.activeSubscriptionId : _selectedPlanId;
+    return plans.firstWhere(
+        (p) =>
+            p.id == selectedId ||
+            selectedId == 'monthly-sub' && p.id == 'monthly_sub',
+        orElse: () => plans.first);
+  }
+
+  String _planName(String id) =>
+      tr(id == 'yearly_sub' ? 'yearly_plan' : 'monthly_plan');
+
+  String _monthlyEquivalent(ProductDetails product) {
+    final formatter = NumberFormat.simpleCurrency(
+        locale: context.locale.toString(), name: product.currencyCode);
+    return formatter.format(product.rawPrice / 12);
+  }
+
+  int? _yearlySaving(ProductDetails yearly) {
+    final monthly = _plans.where((p) => p.id != 'yearly_sub');
+    if (monthly.isEmpty ||
+        yearly.currencyCode != monthly.first.currencyCode ||
+        monthly.first.rawPrice <= 0 ||
+        yearly.rawPrice <= 0) {
+      return null;
+    }
+    final saving =
+        ((1 - yearly.rawPrice / (monthly.first.rawPrice * 12)) * 100).floor();
+    return saving > 0 ? saving : null;
+  }
+
+  Widget _note(IconData icon, String message, {bool error = false}) {
+    final p = _palette;
+    final color = error ? p.danger : p.accent;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: error ? color.withValues(alpha: 0.1) : p.tint,
+          borderRadius: BorderRadius.circular(16)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(icon, size: 19, color: color),
+        const SizedBox(width: 10),
+        Expanded(
+            child: Text(message,
+                style: TextStyle(
+                    color: error ? color : p.ink,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w600,
-                    color: isDarkMode ? Colors.white : Colors.black87,
-                  ),
-                ),
-                Text(
-                  description,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+                    height: 1.6))),
+      ]),
     );
   }
 
-  Widget _buildBenefitItem(IconData icon, String text) {
+  /// 画面に入った時に、下からふわっと現れるようにする
+  Widget _reveal(String id, Widget child, {int delayMs = 0}) => PaywallReveal(
+        key: ValueKey('paywall_reveal_$id'),
+        delay: Duration(milliseconds: delayMs),
+        builder: (context, progress) =>
+            PaywallEntrance(animation: progress, child: child),
+      );
+
+  // 大きな文字（見出し・価格）に適用する、文字サイズ設定の上限
+  static const double _headlineMaxScale = 1.35;
+  static const double _priceMaxScale = 1.6;
+
+  Widget _buildHeadline() {
+    final p = _palette;
     return Column(
       children: [
-        Icon(
-          icon,
-          color: Colors.white,
-          size: 28,
-        ),
+        Text(tr('paywall_title'),
+            textAlign: TextAlign.center,
+            // 元から大きい文字なので、拡大は控えめにして途中で折り返さないようにする
+            textScaler: MediaQuery.textScalerOf(context)
+                .clamp(maxScaleFactor: _headlineMaxScale),
+            style: TextStyle(
+                color: p.ink,
+                fontSize: 25,
+                fontWeight: FontWeight.w800,
+                height: 1.35)),
         const SizedBox(height: 8),
-        Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            height: 1.3,
-          ),
-        ),
+        Text(tr('paywall_subtitle'),
+            textAlign: TextAlign.center,
+            style: TextStyle(color: p.muted, fontSize: 13.5, height: 1.6)),
       ],
     );
   }
 
-  Widget _buildPlanCard(ProductDetails product, {bool isDarkMode = false}) {
-    // プラン名を日本語で表示
-    String planName = '';
-    String planDescription = '';
-    Color planColor = Colors.blue;
-    List<String> features = [];
-    bool isYearlyPlan = false;
-
-    if (product.id == 'android.test.purchased') {
-      planName = tr('test_purchase_success');
-      planDescription = tr('test_purchase_success_desc');
-      planColor = Colors.green;
-      features = [tr('test_feature_1'), tr('test_feature_2')];
-    } else if (product.id == 'android.test.canceled') {
-      planName = tr('test_purchase_canceled');
-      planDescription = tr('test_purchase_canceled_desc');
-      planColor = Colors.orange;
-      features = [tr('test_feature_1'), tr('test_feature_2')];
-    } else if (product.id == 'monthly_sub' || product.id == 'monthly-sub') {
-      planName = tr('monthly_plan');
-      planDescription = tr('monthly_plan_desc');
-      planColor = const Color(0xFFEC407A);
-      features = [
-        tr('feature_unlimited_count'),
-        tr('feature_custom_stitches'),
-        tr('feature_no_ads'),
-      ];
-    } else if (product.id == 'yearly_sub') {
-      isYearlyPlan = true;
-      final subscriptionProvider = context.watch<SubscriptionProvider>();
-      final canUseTrial = !subscriptionProvider.hasUsedTrial;
-
-      planName = tr('yearly_plan');
-      if (canUseTrial) {
-        planDescription = tr('yearly_plan_desc_trial');
-      } else {
-        planDescription = tr('yearly_plan_desc');
-      }
-      planColor = const Color(0xFF9C27B0);
-      features = [
-        tr('feature_unlimited_count'),
-        tr('feature_custom_stitches'),
-        tr('feature_no_ads'),
-        tr('feature_offline'),
-      ];
-    }
-
-    return Consumer<SubscriptionProvider>(
-      builder: (context, provider, child) {
-        final canUseTrial = !provider.hasUsedTrial && isYearlyPlan;
-
-        return Container(
-          margin: const EdgeInsets.symmetric(vertical: 12),
+  Widget _sectionTitle(String title) {
+    final p = _palette;
+    return Row(
+      children: [
+        Container(
+          width: 5,
+          height: 18,
           decoration: BoxDecoration(
-            color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: canUseTrial
-                  ? Colors.green.withValues(alpha: 0.5)
-                  : planColor.withValues(alpha: 0.3),
-              width: canUseTrial ? 3 : 2,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color:
-                    (canUseTrial ? Colors.green : planColor).withValues(alpha: 0.2),
-                blurRadius: canUseTrial ? 20 : 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              // 無料トライアル大バナー（年間プランでトライアル可能な場合のみ）
-              if (canUseTrial)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF00E676), Color(0xFF00C853)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(18),
-                      topRight: Radius.circular(18),
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.celebration,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                          const SizedBox(width: 12),
-                          Flexible(
-                            child: Text(
-                              tr('trial_banner_title'),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                height: 1.3,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          const Icon(
-                            Icons.celebration,
-                            color: Colors.white,
-                            size: 28,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          tr('trial_banner_subtitle'),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        tr('trial_banner_note'),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 50,
-                          height: 50,
-                          decoration: BoxDecoration(
-                            color: planColor,
-                            borderRadius: BorderRadius.circular(25),
-                          ),
-                          child: Icon(
-                            product.id == 'yearly_sub'
-                                ? Icons.star
-                                : Icons.favorite,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                planName,
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: isDarkMode ? Colors.white : Colors.black87,
-                                ),
-                              ),
-                              Text(
-                                planDescription,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (isYearlyPlan && !canUseTrial)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: const LinearGradient(
-                                colors: [Colors.orange, Colors.deepOrange],
-                              ),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              tr('best_value'),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-
-                    // 無料トライアル期間の詳細（年間プランでトライアル可能な場合）
-                    if (canUseTrial) ...[
-                      const SizedBox(height: 20),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.green.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                const Icon(
-                                  Icons.calendar_today,
-                                  color: Color(0xFF00C853),
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  tr('trial_period_info_title'),
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF00C853),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              tr('trial_period_info'),
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isDarkMode ? Colors.white : Colors.black87,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                tr('trial_cancel_note'),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF00C853),
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 20),
-                    ...features.map((feature) => Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.check_circle,
-                                color: planColor,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 12),
-                              Text(
-                                feature,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                  color: isDarkMode ? Colors.white : Colors.black87,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )),
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            if (canUseTrial) ...[
-                              Text(
-                                tr('limited_time'),
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: Color(0xFF00C853),
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const Text(
-                                '¥0',
-                                style: TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF00C853),
-                                ),
-                              ),
-                              Text(
-                                tr('first_3_days'),
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.grey,
-                                ),
-                              ),
-                            ] else ...[
-                              Text(
-                                tr('price'),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                                ),
-                              ),
-                              Text(
-                                product.price,
-                                style: TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: planColor,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        if (!_purchasePending && product.id.isNotEmpty)
-                          ElevatedButton(
-                            onPressed: () => _buy(product),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: canUseTrial
-                                  ? const Color(0xFF00C853)
-                                  : planColor,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 32,
-                                vertical: 16,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(25),
-                              ),
-                              elevation: canUseTrial ? 8 : 4,
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (canUseTrial)
-                                  const Icon(Icons.play_arrow, size: 20),
-                                if (canUseTrial) const SizedBox(width: 4),
-                                Text(
-                                  canUseTrial ? tr('start_free') : tr('buy'),
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        if (_purchasePending)
-                          const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.grey),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+              color: p.accent, borderRadius: BorderRadius.circular(3)),
+        ),
+        const SizedBox(width: 9),
+        Expanded(
+            child: Text(title,
+                style: TextStyle(
+                    color: p.ink,
+                    fontSize: 16.5,
+                    fontWeight: FontWeight.w800,
+                    height: 1.35))),
+      ],
     );
   }
 
-  bool get _isProcessing => _purchasePending || _restorePending;
+  /// 特典の一覧。カードは現れたあとにイラストが一度だけ動く
+  Widget _buildBenefits() {
+    final p = _palette;
+    final freeLabel = tr('paywall_free_label');
+    // イラスト・見出し・説明・無料での状態・プレミアムでの状態
+    final benefits = <(
+      Widget Function(Animation<double> progress),
+      String,
+      String,
+      String,
+      String
+    )>[
+      (
+        (progress) =>
+            PaywallProjectsIllustration(palette: p, progress: progress),
+        tr('feature_unlimited_count'),
+        tr('paywall_projects_desc'),
+        tr('paywall_free_projects'),
+        tr('paywall_premium_projects'),
+      ),
+      (
+        (progress) =>
+            PaywallStitchesIllustration(palette: p, progress: progress),
+        tr('feature_custom_stitches'),
+        tr('paywall_stitches_desc'),
+        tr('paywall_free_stitches'),
+        tr('paywall_premium_stitches'),
+      ),
+      (
+        (progress) => PaywallNoAdsIllustration(palette: p, progress: progress),
+        tr('feature_no_ads'),
+        tr('paywall_no_ads_desc'),
+        tr('paywall_free_ads'),
+        tr('paywall_premium_ads'),
+      ),
+    ];
+    return LayoutBuilder(builder: (context, constraints) {
+      // カードごとに折り返しが違うと不揃いに見えるので、
+      // 「無料 → プレミアム」を1行に並べるかどうかは全カードで揃える
+      final compareOnOneLine = PaywallBenefitCard.fitsCompareOnOneLine(
+        context,
+        cardWidth: constraints.maxWidth,
+        freeLabel: freeLabel,
+        values: [for (final benefit in benefits) (benefit.$4, benefit.$5)],
+      );
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (index, benefit) in benefits.indexed)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: PaywallReveal(
+                key: ValueKey('paywall_reveal_benefit_$index'),
+                delay: Duration(milliseconds: 260 + 110 * index),
+                duration: const Duration(milliseconds: 1500),
+                builder: (context, progress) => PaywallEntrance(
+                  animation: progress,
+                  length: 0.32,
+                  child: PaywallBenefitCard(
+                    palette: p,
+                    illustration: benefit.$1(paywallInterval(
+                        progress, 0.22, 0.78,
+                        curve: Curves.linear)),
+                    title: benefit.$2,
+                    description: benefit.$3,
+                    freeLabel: freeLabel,
+                    freeValue: benefit.$4,
+                    premiumValue: benefit.$5,
+                    compareOnOneLine: compareOnOneLine,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      );
+    });
+  }
+
+  Widget _buildPlanCard(ProductDetails product, SubscriptionProvider provider) {
+    final p = _palette;
+    final yearly = product.id == 'yearly_sub';
+    final selected = _selectedProduct?.id == product.id;
+    final saving = yearly ? _yearlySaving(product) : null;
+    // 「{price} / 年」の価格だけを大きく見せるため、前後の文言に分ける
+    const pricePlaceholder = '\u0000';
+    final priceParts = tr(yearly ? 'paywall_year_price' : 'paywall_month_price',
+        namedArgs: {'price': pricePlaceholder}).split(pricePlaceholder);
+    final unitStyle = TextStyle(
+        color: p.muted, fontSize: 13, fontWeight: FontWeight.w600, height: 1.3);
+    final bannerColor = selected ? p.onAccent : p.accent;
+    final bannerStyle = TextStyle(
+        color: bannerColor,
+        fontSize: 12,
+        fontWeight: FontWeight.w800,
+        height: 1.35);
+    const duration = Duration(milliseconds: 220);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Semantics(
+        selected: selected,
+        button: true,
+        child: AnimatedContainer(
+          duration: duration,
+          curve: Curves.easeOut,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: selected ? p.tint : p.surface,
+            borderRadius: BorderRadius.circular(20),
+            border:
+                Border.all(color: selected ? p.accent : p.border, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                  color: p.accent.withValues(alpha: selected ? 0.16 : 0),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              key: ValueKey('plan_${product.id}'),
+              splashColor: p.accent.withValues(alpha: 0.10),
+              highlightColor: p.accent.withValues(alpha: 0.06),
+              onTap: _isProcessing || provider.isPremium
+                  ? null
+                  : () {
+                      setState(() => _selectedPlanId = product.id);
+                    },
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // 月額より安い時だけ「おすすめ」と割引率を帯で示す
+                  if (saving != null)
+                    AnimatedContainer(
+                      duration: duration,
+                      color: selected ? p.accent : p.tint,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 6),
+                      child: Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 10,
+                        runSpacing: 2,
+                        children: [
+                          Row(mainAxisSize: MainAxisSize.min, children: [
+                            Icon(Icons.star_rounded,
+                                size: paywallIconSize(context, 15),
+                                color: bannerColor),
+                            const SizedBox(width: 4),
+                            Flexible(
+                                child: Text(tr('paywall_recommended'),
+                                    style: bannerStyle)),
+                          ]),
+                          Text(
+                              tr('paywall_saving',
+                                  namedArgs: {'percent': '$saving'}),
+                              style: bannerStyle),
+                        ],
+                      ),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 13, 14, 14),
+                    child: Row(children: [
+                      PaywallSelectionMark(palette: p, selected: selected),
+                      const SizedBox(width: 13),
+                      Expanded(
+                          child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_planName(product.id),
+                              style: TextStyle(
+                                  color: p.ink,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14.5,
+                                  height: 1.35)),
+                          const SizedBox(height: 2),
+                          Text.rich(
+                              textScaler: MediaQuery.textScalerOf(context)
+                                  .clamp(maxScaleFactor: _priceMaxScale),
+                              TextSpan(children: [
+                                if (priceParts.first.isNotEmpty)
+                                  TextSpan(
+                                      text: priceParts.first, style: unitStyle),
+                                TextSpan(
+                                    text: product.price,
+                                    style: TextStyle(
+                                        color: p.ink,
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 24,
+                                        height: 1.3)),
+                                if (priceParts.length > 1 &&
+                                    priceParts.last.isNotEmpty)
+                                  TextSpan(
+                                      text: priceParts.last, style: unitStyle),
+                              ])),
+                          const SizedBox(height: 3),
+                          Text(
+                              yearly
+                                  ? tr('paywall_month_equivalent', namedArgs: {
+                                      'price': _monthlyEquivalent(product)
+                                    })
+                                  : tr('paywall_monthly_note'),
+                              style: TextStyle(
+                                  color: p.muted, fontSize: 12, height: 1.5)),
+                        ],
+                      )),
+                    ]),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _legalLinks() => Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 4,
+        children: [
+          TextButton(
+              key: const ValueKey('restore_purchases_button'),
+              onPressed: _isProcessing ? null : _restorePurchases,
+              child: Text(tr('restore_purchases'))),
+          TextButton(
+              onPressed: _isProcessing
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const TermsScreen())),
+              child: Text(tr('terms'))),
+          TextButton(
+              onPressed: _isProcessing
+                  ? null
+                  : () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => const PrivacyPolicyScreen())),
+              child: Text(tr('privacy'))),
+        ],
+      );
+
+  /// 請求額・購入ボタン・復元や規約へのリンク。
+  /// [inline] は画面下に固定せず、スクロールする内容の最後に置く場合
+  Widget _buildPurchaseBar(SubscriptionProvider provider,
+      {bool inline = false}) {
+    final p = _palette;
+    final product = _selectedProduct;
+    final canBuy = product != null &&
+        _isAvailable &&
+        !_loading &&
+        !_isProcessing &&
+        !provider.isPremium;
+    final label = provider.isPremium
+        ? tr('paywall_already_premium')
+        : product != null
+            ? tr('paywall_continue_plan',
+                namedArgs: {'plan': _planName(product.id)})
+            : tr('paywall_choose_plan');
+    final radius = BorderRadius.circular(18);
+    final billingStyle = TextStyle(color: p.muted, fontSize: 11.5, height: 1.5);
+    final bar = SafeArea(
+      top: false,
+      child: Align(
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Padding(
+            padding:
+                EdgeInsets.fromLTRB(inline ? 0 : 20, 12, inline ? 0 : 20, 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_loading) ...[
+                  Text(tr('loading'),
+                      textAlign: TextAlign.center, style: billingStyle),
+                  const SizedBox(height: 9),
+                ] else if (_storeFailed && !inline) ...[
+                  // 画面下に固定している時は、スクロールしなくても原因と再試行が見えるようにする
+                  Row(children: [
+                    Icon(Icons.wifi_off_rounded, size: 18, color: p.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: Text(tr('paywall_store_unavailable'),
+                            style: TextStyle(
+                                color: p.ink, fontSize: 11.5, height: 1.45))),
+                    const SizedBox(width: 4),
+                    _buildRetryButton(),
+                  ]),
+                  const SizedBox(height: 4),
+                ] else if (product != null && !provider.isPremium) ...[
+                  Text(
+                      tr(
+                          product.id == 'yearly_sub'
+                              ? 'paywall_year_billing'
+                              : 'paywall_month_billing',
+                          namedArgs: {'price': product.price}),
+                      textAlign: TextAlign.center,
+                      style: billingStyle),
+                  const SizedBox(height: 9),
+                ],
+                PaywallShine(
+                  borderRadius: radius,
+                  enabled: canBuy,
+                  trigger: product?.id,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      borderRadius: radius,
+                      gradient: canBuy
+                          ? LinearGradient(colors: [p.accentStart, p.accentEnd])
+                          : null,
+                      color: canBuy
+                          ? null
+                          : provider.isPremium
+                              ? p.tint
+                              : p.border,
+                      boxShadow: [
+                        BoxShadow(
+                            color:
+                                p.accent.withValues(alpha: canBuy ? 0.28 : 0),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6)),
+                      ],
+                    ),
+                    child: FilledButton(
+                        key: const ValueKey('purchase_selected_plan'),
+                        onPressed: canBuy ? () => _buy(product) : null,
+                        style: FilledButton.styleFrom(
+                            backgroundColor: Colors.transparent,
+                            disabledBackgroundColor: Colors.transparent,
+                            shadowColor: Colors.transparent,
+                            foregroundColor: p.onAccent,
+                            disabledForegroundColor:
+                                provider.isPremium ? p.accent : p.muted,
+                            minimumSize: const Size.fromHeight(54),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 15),
+                            shape: RoundedRectangleBorder(borderRadius: radius),
+                            textStyle: TextStyle(
+                                fontFamily: Theme.of(context)
+                                    .textTheme
+                                    .labelLarge
+                                    ?.fontFamily,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 16)),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (provider.isPremium) ...[
+                              const Icon(Icons.check_circle_rounded, size: 19),
+                              const SizedBox(width: 8),
+                            ],
+                            Flexible(
+                                child:
+                                    Text(label, textAlign: TextAlign.center)),
+                          ],
+                        )),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                _legalLinks(),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (inline) return bar;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+          color: p.surface, border: Border(top: BorderSide(color: p.border))),
+      child: bar,
+    );
+  }
+
+  /// ストアから料金を取得できなかった状態か（読み込み中は含まない）
+  bool get _storeFailed => !_loading && (!_isAvailable || _plans.isEmpty);
+
+  Widget _buildRetryButton() {
+    final p = _palette;
+    return TextButton.icon(
+        key: const ValueKey('retry_store_button'),
+        onPressed: _isProcessing ? null : _initStoreInfo,
+        style: TextButton.styleFrom(
+            foregroundColor: p.accent,
+            textStyle: TextStyle(
+                fontFamily: Theme.of(context).textTheme.labelLarge?.fontFamily,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700)),
+        icon: const Icon(Icons.refresh_rounded, size: 18),
+        label: Text(tr('retry')));
+  }
+
+  /// プランの読み込み中・読み込み失敗・プラン一覧のいずれか。
+  /// [showRetry] がfalseの時は、再試行ボタンを画面下の購入バーに出す
+  List<Widget> _buildPlans(SubscriptionProvider provider,
+      {required bool showRetry}) {
+    final p = _palette;
+    if (_loading) return [PaywallPlanSkeleton(palette: p)];
+    final plans = _plans;
+    if (_storeFailed) {
+      return [
+        _note(Icons.wifi_off_rounded, tr('paywall_store_unavailable')),
+        if (showRetry) ...[
+          const SizedBox(height: 4),
+          Center(child: _buildRetryButton()),
+        ] else
+          const SizedBox(height: 10),
+      ];
+    }
+    return [
+      for (var i = 0; i < plans.length; i++)
+        _reveal('plan_${plans[i].id}', _buildPlanCard(plans[i], provider),
+            delayMs: 90 * i),
+    ];
+  }
+
+  Widget _buildDataSafetyNote() {
+    final p = _palette;
+    return Container(
+      key: const ValueKey('data_safety_note'),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: p.border)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(color: p.tint, shape: BoxShape.circle),
+              child:
+                  Icon(Icons.verified_user_rounded, size: 17, color: p.accent),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+                child: Text(tr('data_safety_title'),
+                    style: TextStyle(
+                        color: p.ink,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        height: 1.4))),
+          ]),
+          const SizedBox(height: 9),
+          Text(tr('paywall_data_note'),
+              style: TextStyle(color: p.muted, fontSize: 12.5, height: 1.6)),
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: Material(
+                type: MaterialType.transparency,
+                child: ExpansionTile(
+                  key: const ValueKey('data_safety_details'),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(bottom: 12),
+                  dense: true,
+                  iconColor: p.muted,
+                  collapsedIconColor: p.muted,
+                  title: Text(tr('paywall_more_details'),
+                      style: TextStyle(color: p.muted, fontSize: 12)),
+                  children: [
+                    Text(tr('data_safety_body'),
+                        style: TextStyle(
+                            color: p.muted, fontSize: 12, height: 1.7))
+                  ],
+                )),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildContent(SubscriptionProvider provider,
+      {bool inlinePurchase = false}) {
+    final p = _palette;
+    final finePrint = TextStyle(color: p.muted, fontSize: 11, height: 1.7);
+    return SingleChildScrollView(
+      key: const ValueKey('paywall_scroll'),
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 476),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _reveal('hero', PaywallHero(palette: p)),
+              const SizedBox(height: 18),
+              _reveal('headline', _buildHeadline(), delayMs: 90),
+              if (provider.isPremium) ...[
+                const SizedBox(height: 14),
+                _note(
+                    Icons.check_circle_outline_rounded,
+                    tr('active_plan', namedArgs: {
+                      'plan': provider.activeSubscriptionId == 'yearly_sub'
+                          ? tr('yearly_plan')
+                          : SubscriptionProvider.monthlyProductIds
+                                  .contains(provider.activeSubscriptionId)
+                              ? tr('monthly_plan')
+                              : tr('premium_plan')
+                    })),
+              ],
+              const SizedBox(height: 24),
+              _reveal(
+                  'benefits_title', _sectionTitle(tr('paywall_benefits_title')),
+                  delayMs: 180),
+              const SizedBox(height: 11),
+              _buildBenefits(),
+              const SizedBox(height: 16),
+              _reveal(
+                  'plans_title',
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _sectionTitle(tr('paywall_choose_plan')),
+                      const SizedBox(height: 5),
+                      Text(tr('paywall_same_features'),
+                          style: TextStyle(
+                              color: p.muted, fontSize: 12.5, height: 1.5)),
+                    ],
+                  ),
+                  delayMs: 590),
+              const SizedBox(height: 12),
+              ..._buildPlans(provider, showRetry: inlinePurchase),
+              if (_error != null) ...[
+                const SizedBox(height: 2),
+                Semantics(
+                    liveRegion: true,
+                    child: _note(Icons.error_outline_rounded, _error!,
+                        error: true)),
+                const SizedBox(height: 10),
+              ],
+              const SizedBox(height: 8),
+              _buildDataSafetyNote(),
+              const SizedBox(height: 14),
+              Text(tr('restore_note'),
+                  textAlign: TextAlign.center, style: finePrint),
+              if (defaultTargetPlatform == TargetPlatform.iOS) ...[
+                const SizedBox(height: 6),
+                Center(
+                    child: TextButton(
+                        onPressed: _isProcessing || _loading
+                            ? null
+                            : _checkPaymentStatus,
+                        child: Text(tr('check_payment_status')))),
+                if (provider.isPremium)
+                  Center(
+                      child: TextButton(
+                          onPressed: _isProcessing ? null : _manageSubscription,
+                          child: Text(tr('paywall_manage_subscription')))),
+              ],
+              const SizedBox(height: 8),
+              Text(tr('paywall_renewal_note'),
+                  textAlign: TextAlign.center, style: finePrint),
+              if (inlinePurchase) ...[
+                const SizedBox(height: 16),
+                _buildPurchaseBar(provider, inline: true)
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-
-    return PopScope(
-      canPop: !_isProcessing,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop && _isProcessing) {
-          _showDialog(tr('processing_wait'));
-        }
-      },
-      child: Scaffold(
-      body: Stack(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: isDarkMode
-                    ? [const Color(0xFF880E4F), const Color(0xFF4A148C)]
-                    : [const Color(0xFFEC407A), const Color(0xFF9C27B0)],
-              ),
-            ),
-            child: SafeArea(
-          child: _loading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                  ),
-                )
-              : !_isAvailable
-                  ? Center(
-                      child: Text(
-                        tr('premium_only_message'),
-                        style: const TextStyle(color: Colors.white),
-                      ),
-                    )
-                  : FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // ヘッダー部分
-                              Row(
-                                children: [
-                                  IconButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    icon: const Icon(
-                                      Icons.arrow_back_ios,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    tr('premium_plan'),
-                                    style: const TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              // 無料トライアルの大きな宣伝バナー（年間プラン未使用の場合）
-                              Consumer<SubscriptionProvider>(
-                                builder: (context, provider, child) {
-                                  if (!provider.hasUsedTrial) {
-                                    return Column(
-                                      children: [
-                                        ScaleTransition(
-                                          scale: _pulseAnimation,
-                                          child: Container(
-                                            width: double.infinity,
-                                            padding: const EdgeInsets.all(24),
-                                            decoration: BoxDecoration(
-                                              gradient: const LinearGradient(
-                                                colors: [
-                                                  Color(0xFF00E676),
-                                                  Color(0xFF00C853),
-                                                ],
-                                                begin: Alignment.topLeft,
-                                                end: Alignment.bottomRight,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: Colors.green
-                                                      .withValues(alpha: 0.4),
-                                                  blurRadius: 20,
-                                                  offset: const Offset(0, 8),
-                                                ),
-                                              ],
-                                            ),
-                                            child: Column(
-                                              children: [
-                                                // キラキラアイコン行
-                                                const Row(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    Icon(Icons.star,
-                                                        color: Colors.white,
-                                                        size: 24),
-                                                    SizedBox(width: 8),
-                                                    Icon(Icons.celebration,
-                                                        color: Colors.white,
-                                                        size: 32),
-                                                    SizedBox(width: 8),
-                                                    Icon(Icons.star,
-                                                        color: Colors.white,
-                                                        size: 24),
-                                                  ],
-                                                ),
-                                                const SizedBox(height: 12),
-                                                // メインメッセージ
-                                                Text(
-                                                  tr('limited_time_offer'),
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w600,
-                                                    letterSpacing: 2,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 8),
-                                                Text(
-                                                  tr('free_trial_3days'),
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 32,
-                                                    fontWeight: FontWeight.bold,
-                                                    height: 1.2,
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 12),
-                                                Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                    horizontal: 20,
-                                                    vertical: 10,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: Colors.white,
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            25),
-                                                    boxShadow: [
-                                                      BoxShadow(
-                                                        color: Colors.black
-                                                            .withValues(alpha: 0.1),
-                                                        blurRadius: 8,
-                                                        offset:
-                                                            const Offset(0, 2),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  child: Row(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    children: [
-                                                      const Icon(
-                                                        Icons.verified,
-                                                        color:
-                                                            Color(0xFF00C853),
-                                                        size: 20,
-                                                      ),
-                                                      const SizedBox(width: 8),
-                                                      Text(
-                                                        tr('all_features_unlimited'),
-                                                        style: const TextStyle(
-                                                          color:
-                                                              Color(0xFF00C853),
-                                                          fontSize: 16,
-                                                          fontWeight:
-                                                              FontWeight.bold,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 16),
-                                                // 特典リスト
-                                                Row(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment
-                                                          .spaceEvenly,
-                                                  children: [
-                                                    _buildBenefitItem(
-                                                        Icons.check_circle,
-                                                        tr('benefit_cancel_anytime')),
-                                                    Container(
-                                                      width: 1,
-                                                      height: 40,
-                                                      color: Colors.white
-                                                          .withValues(alpha: 0.3),
-                                                    ),
-                                                    _buildBenefitItem(
-                                                        Icons.notifications_off,
-                                                        tr('benefit_notify_before_renewal')),
-                                                    Container(
-                                                      width: 1,
-                                                      height: 40,
-                                                      color: Colors.white
-                                                          .withValues(alpha: 0.3),
-                                                    ),
-                                                    _buildBenefitItem(
-                                                        Icons.credit_card_off,
-                                                        tr('benefit_free_during_trial')),
-                                                  ],
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(height: 20),
-                                      ],
-                                    );
-                                  }
-                                  return const SizedBox(height: 4);
-                                },
-                              ),
-
-                              // Android限定クーポン告知バナー
-                              if (defaultTargetPlatform == TargetPlatform.android)
-                                Container(
-                                  width: double.infinity,
-                                  margin: const EdgeInsets.only(bottom: 20),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    gradient: const LinearGradient(
-                                      colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
-                                      begin: Alignment.topLeft,
-                                      end: Alignment.bottomRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(16),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: const Color(0xFF1976D2).withValues(alpha: 0.3),
-                                        blurRadius: 12,
-                                        offset: const Offset(0, 6),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(Icons.android, color: Colors.white, size: 22),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            tr('android_campaign_title'),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        tr('android_campaign_subtitle'),
-                                        textAlign: TextAlign.center,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 10),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          tr('coupon_code_label'),
-                                          style: const TextStyle(
-                                            color: Color(0xFF1976D2),
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Text(
-                                        tr('coupon_instructions'),
-                                        textAlign: TextAlign.center,
-                                        style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.9),
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                              // メインコンテンツ
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
-                                  borderRadius: BorderRadius.circular(24),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withValues(alpha: 0.1),
-                                      blurRadius: 20,
-                                      offset: const Offset(0, 10),
-                                    ),
-                                  ],
-                                ),
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    // タイトル
-                                    Text(
-                                      tr('experience_premium'),
-                                      style: TextStyle(
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.bold,
-                                        color: isDarkMode ? Colors.white : Colors.black87,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      tr('premium_tagline'),
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 24),
-
-                                    // 機能一覧
-                                    _buildFeatureItem(
-                                      '0xe3c9', // Icons.favorite
-                                      tr('feature_unlimited_count'),
-                                      tr('feature_unlimited_count_desc'),
-                                      isDarkMode: isDarkMode,
-                                    ),
-                                    _buildFeatureItem(
-                                      '0xe3b7', // Icons.settings
-                                      tr('feature_custom_stitches'),
-                                      tr('feature_custom_stitches_desc'),
-                                      isDarkMode: isDarkMode,
-                                    ),
-                                    _buildFeatureItem(
-                                      '0xe3b0', // Icons.block
-                                      tr('feature_no_ads'),
-                                      tr('feature_no_ads_desc'),
-                                      isDarkMode: isDarkMode,
-                                    ),
-
-                                    const SizedBox(height: 16),
-                                    Container(
-                                      padding: const EdgeInsets.all(16),
-                                      decoration: BoxDecoration(
-                                        color: isDarkMode ? const Color(0xFF3D3D3D) : Colors.grey[100],
-                                        borderRadius: BorderRadius.circular(12),
-                                        border: Border.all(
-                                          color: isDarkMode ? Colors.grey[700]! : Colors.grey[300]!,
-                                        ),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            tr('subscription_info_title'),
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.bold,
-                                              color: isDarkMode ? Colors.white : Colors.black87,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            tr('subscription_info_body'),
-                                            style: TextStyle(
-                                              fontSize: 14,
-                                              color: isDarkMode ? Colors.grey[400] : Colors.grey[700],
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-
-                              // プラン選択（iOS/Android 共通）
-                              ..._products
-                                  .map((product) => _buildPlanCard(product, isDarkMode: isDarkMode)),
-
-                              // 管理ボタン群（iOSのみ）
-                              if (defaultTargetPlatform ==
-                                  TargetPlatform.iOS) ...[
-                                const SizedBox(height: 24),
-                                Center(
-                                  child: Column(
-                                    children: [
-                                      // 支払い状況確認ボタン
-                                      TextButton.icon(
-                                        onPressed: _loading
-                                            ? null
-                                            : _checkPaymentStatus,
-                                        icon: _loading
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
-                                              )
-                                            : const Icon(Icons.payment),
-                                        label: Text(_loading
-                                            ? tr('checking')
-                                            : tr('check_payment_status')),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 24,
-                                            vertical: 12,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-
-                                      // 購入復元ボタン
-                                      TextButton.icon(
-                                        onPressed: _restorePending
-                                            ? null
-                                            : _restorePurchases,
-                                        icon: _restorePending
-                                            ? const SizedBox(
-                                                width: 16,
-                                                height: 16,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                ),
-                                              )
-                                            : const Icon(Icons.restore),
-                                        label: Text(_restorePending
-                                            ? tr('restoring')
-                                            : tr('restore_purchases')),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: Colors.white,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 24,
-                                            vertical: 12,
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 16),
-
-                                      // サブスクリプションキャンセルボタン（アクティブな場合のみ表示）
-                                      if (_activePlan != null)
-                                        TextButton.icon(
-                                          onPressed: _cancelSubscription,
-                                          icon: const Icon(Icons.cancel),
-                                          label: Text(tr('cancel_subscription')),
-                                          style: TextButton.styleFrom(
-                                            foregroundColor: Colors.red[300],
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 24,
-                                              vertical: 12,
-                                            ),
-                                          ),
-                                        ),
-
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        tr('payment_management_note'),
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.white.withValues(alpha: 0.8),
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                      const SizedBox(height: 24),
-                                    ],
-                                  ),
-                                ),
-                              ],
-
-                              // 利用規約とプライバシーポリシーのリンク
-                              Container(
-                                margin: const EdgeInsets.only(top: 16),
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.2),
-                                  ),
-                                ),
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      tr('legal_info'),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceEvenly,
-                                      children: [
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (context) =>
-                                                    const TermsScreen(),
-                                              ),
-                                            );
-                                          },
-                                          child: Text(
-                                            tr('terms'),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              decoration:
-                                                  TextDecoration.underline,
-                                            ),
-                                          ),
-                                        ),
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.of(context).push(
-                                              MaterialPageRoute(
-                                                builder: (context) =>
-                                                    const PrivacyPolicyScreen(),
-                                              ),
-                                            );
-                                          },
-                                          child: Text(
-                                            tr('privacy'),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              decoration:
-                                                  TextDecoration.underline,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-
-                              // エラーメッセージ
-                              if (_error != null)
-                                Container(
-                                  margin: const EdgeInsets.only(top: 16),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.red.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.red.withValues(alpha: 0.3),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.error_outline,
-                                        color: Colors.red,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          _error!,
-                                          style: const TextStyle(
-                                            color: Colors.red,
-                                            fontSize: 14,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-
-                              // アクティブプラン表示
-                              if (_activePlan != null)
-                                Container(
-                                  margin: const EdgeInsets.only(top: 16),
-                                  padding: const EdgeInsets.all(16),
-                                  decoration: BoxDecoration(
-                                    color: Colors.green.withValues(alpha: 0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.green.withValues(alpha: 0.3),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.check_circle,
-                                        color: Colors.green,
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Text(
-                                          tr('active_plan', namedArgs: {'plan': '$_activePlan'}),
-                                          style: const TextStyle(
-                                            color: Colors.green,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
+    final provider = context.watch<SubscriptionProvider>();
+    final p = _palette;
+    final localTheme = Theme.of(context).copyWith(
+        textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+                foregroundColor: p.muted,
+                textStyle: TextStyle(
+                    fontFamily:
+                        Theme.of(context).textTheme.labelLarge?.fontFamily,
+                    fontSize: 11.5))),
+        colorScheme: Theme.of(context).colorScheme.copyWith(primary: p.accent));
+    return LayoutBuilder(builder: (context, constraints) {
+      final inlinePurchase = constraints.maxHeight < 700 ||
+          MediaQuery.textScalerOf(context).scale(1) > 1.5;
+      return Theme(
+        data: localTheme,
+        child: PopScope(
+          canPop: !_isProcessing,
+          onPopInvokedWithResult: (didPop, result) {
+            if (!didPop && _isProcessing) _showDialog(tr('processing_wait'));
+          },
+          child: Scaffold(
+            backgroundColor: p.background,
+            appBar: AppBar(
+                backgroundColor: p.background,
+                surfaceTintColor: Colors.transparent,
+                foregroundColor: p.ink,
+                elevation: 0,
+                centerTitle: true,
+                leading: IconButton(
+                    key: const ValueKey('close_paywall_button'),
+                    tooltip:
+                        MaterialLocalizations.of(context).closeButtonTooltip,
+                    onPressed: _isProcessing
+                        ? null
+                        : () => Navigator.of(context).maybePop(),
+                    icon: const Icon(Icons.close_rounded, size: 22)),
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.auto_awesome_rounded, size: 15, color: p.accent),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text('Poco Premium',
+                          style: TextStyle(
+                              fontSize: 14,
+                              letterSpacing: 1.1,
+                              fontWeight: FontWeight.w700,
+                              color: p.accent)),
                     ),
-            ),
-          ),
-          // Confettiウィジェット（課金成功時に表示）
-          Align(
-            alignment: Alignment.topCenter,
-            child: ConfettiWidget(
-              confettiController: _confettiController,
-              blastDirectionality: BlastDirectionality.explosive,
-              shouldLoop: false,
-              colors: const [
-                Colors.pink,
-                Colors.purple,
-                Colors.orange,
-                Colors.yellow,
-                Colors.green,
-                Colors.blue,
-              ],
-              numberOfParticles: 30,
-              maxBlastForce: 20,
-              minBlastForce: 8,
-              emissionFrequency: 0.05,
-              gravity: 0.2,
-            ),
-          ),
-          // 課金・復元処理中の全画面ローディングオーバーレイ
-          if (_isProcessing)
-            Container(
-              color: Colors.black.withValues(alpha: 0.5),
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-                  decoration: BoxDecoration(
-                    color: isDarkMode ? const Color(0xFF2D2D2D) : Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEC407A)),
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        _restorePending
-                            ? tr('restoring_purchase_info')
-                            : tr('purchase_processing'),
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: isDarkMode ? Colors.white : Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        tr('do_not_close_screen'),
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isDarkMode ? Colors.grey[400] : Colors.grey[600],
-                        ),
-                      ),
-                    ],
+                  ],
+                )),
+            bottomNavigationBar:
+                inlinePurchase ? null : _buildPurchaseBar(provider),
+            body: Stack(children: [
+              _buildContent(provider, inlinePurchase: inlinePurchase),
+              IgnorePointer(
+                  child: Align(
+                      alignment: Alignment.topCenter,
+                      child: ConfettiWidget(
+                          confettiController: _confettiController,
+                          blastDirectionality: BlastDirectionality.explosive,
+                          shouldLoop: false,
+                          colors: const [
+                            Color(0xFFEC407A),
+                            Color(0xFFF7922D),
+                            Color(0xFFFFD166),
+                            Color(0xFF7CB342)
+                          ],
+                          numberOfParticles: 16,
+                          maxBlastForce: 16,
+                          minBlastForce: 6,
+                          emissionFrequency: 0.05,
+                          gravity: 0.2))),
+              if (_isProcessing)
+                Positioned.fill(
+                  // 下の内容には触れられないようにしつつ（ColoredBoxが操作を受け止める）、
+                  // この表示の中の「閉じる」は押せるようにする
+                  child: ColoredBox(
+                    color: p.background.withValues(alpha: 0.97),
+                    child: Center(
+                        child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        // 処理が終わるとこの表示ごと外れて、アニメーションも止まる
+                        const CatLoadingIndicator(size: 150),
+                        const SizedBox(height: 20),
+                        Text(
+                            _restorePending
+                                ? tr('restoring_purchase_info')
+                                : tr('purchase_processing'),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: p.ink,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 8),
+                        if (!_processingEscapable)
+                          Text(tr('do_not_close_screen'),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: p.muted, fontSize: 12))
+                        else ...[
+                          // しばらく待っても終わらない時は、ここから必ず抜けられる
+                          Text(tr('paywall_processing_hint'),
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                  color: p.muted, fontSize: 12.5, height: 1.6)),
+                          const SizedBox(height: 14),
+                          OutlinedButton(
+                              key: const ValueKey('dismiss_processing_button'),
+                              onPressed: _dismissProcessing,
+                              style: OutlinedButton.styleFrom(
+                                  foregroundColor: p.accent,
+                                  side: BorderSide(color: p.accent),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 28, vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14)),
+                                  textStyle: TextStyle(
+                                      fontFamily: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.fontFamily,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700)),
+                              child: Text(tr('paywall_processing_dismiss'))),
+                        ],
+                      ]),
+                    )),
                   ),
                 ),
-              ),
-            ),
-        ],
-      ),
-      ),
-    );
+            ]),
+          ),
+        ),
+      );
+    });
   }
 
-  // 支払い状況を確認
   Future<void> _checkPaymentStatus() async {
+    if (_isProcessing) return;
+    final operation = ++_operation;
     setState(() {
-      _loading = true;
+      _checkingStatus = true;
       _error = null;
     });
-
+    _startPurchaseTimeout();
     try {
-      final subscriptionProvider = context.read<SubscriptionProvider>();
-      final status = await subscriptionProvider.checkPaymentStatus();
-
-      if (mounted) {
-        if (status['available'] == true) {
-          if (status['hasActiveSubscription'] == true) {
-            setState(() {
-              _activePlan = status['subscriptionId'];
-              _loading = false;
-            });
-
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(tr('active_subscription_found')),
-                backgroundColor: Colors.green,
-              ),
-            );
-          } else {
-            setState(() {
-              _loading = false;
-            });
-          }
-        } else {
-          setState(() {
-            _error = status['error'] ?? tr('payment_status_check_failed');
-            _loading = false;
-          });
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = tr('payment_status_check_error', namedArgs: {'error': '$e'});
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  // サブスクリプションをキャンセル
-  Future<void> _cancelSubscription() async {
-    final subscriptionProvider = context.read<SubscriptionProvider>();
-
-    // 確認ダイアログを表示
-    final shouldCancel = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr('cancel_subscription_title')),
-        content: Text(tr('cancel_subscription_message')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(tr('cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: Text(tr('do_cancel')),
-          ),
-        ],
-      ),
-    );
-
-    if (shouldCancel == true) {
-      try {
-        await subscriptionProvider.cancelSubscription();
-
-        if (mounted) {
-          setState(() {
-            _activePlan = null;
-          });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('subscription_canceled')),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(tr('cancel_process_error', namedArgs: {'error': '$e'})),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  // 既存のサブスクリプションを確認
-  Future<void> _checkExistingSubscription() async {
-    try {
-      final subscriptionProvider = context.read<SubscriptionProvider>();
-
-      // トライアル期間の状態をチェック
-      await subscriptionProvider.checkTrialStatus();
-
-      // 現在のプレミアム状態を確認
-      if (subscriptionProvider.isPremium) {
-        if (subscriptionProvider.isInTrialPeriod) {
-          setState(() {
-            _activePlan = tr('free_trial_remaining', namedArgs: {
-              'days': '${subscriptionProvider.trialDaysRemaining}'
-            });
-            _loading = false;
-          });
-        } else {
-          setState(() {
-            _activePlan =
-                subscriptionProvider.activeSubscriptionId ?? 'unknown';
-            _loading = false;
-          });
-        }
+      final status = await context
+          .read<SubscriptionProvider>()
+          .checkPaymentStatus()
+          .timeout(const Duration(seconds: 15));
+      if (!mounted || operation != _operation) return;
+      if (status['available'] != true) {
+        _showFailure(tr('payment_status_check_failed'));
       } else {
-        setState(() {
-          _loading = false;
-        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(tr(status['hasActiveSubscription'] == true
+                ? 'active_subscription_found'
+                : 'restore_nothing_found'))));
       }
-    } catch (e) {
-      setState(() {
-        _loading = false;
-      });
+    } catch (_) {
+      if (mounted && operation == _operation) {
+        _showFailure(tr('payment_status_check_failed'));
+      }
+    } finally {
+      if (mounted && operation == _operation) {
+        _cancelPurchaseTimeout();
+        setState(() => _checkingStatus = false);
+      }
+    }
+  }
+
+  Future<void> _manageSubscription() async {
+    try {
+      final opened = await launchUrl(
+          Uri.parse('https://apps.apple.com/account/subscriptions'),
+          mode: LaunchMode.externalApplication);
+      if (!opened) _showFailure(tr('paywall_manage_error'));
+    } catch (_) {
+      _showFailure(tr('paywall_manage_error'));
     }
   }
 }

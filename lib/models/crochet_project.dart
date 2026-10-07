@@ -1,4 +1,5 @@
 import '../models/crochet_stitch.dart';
+import '../models/project_markers.dart';
 import 'package:flutter/material.dart';
 
 class CrochetProject {
@@ -14,6 +15,8 @@ class CrochetProject {
   final String backgroundColor;
   final String? iconImagePath; // カスタム写真アイコンのパス
   final List<dynamic> customStitches; // プロジェクト固有の編み目設定
+  final String memo; // 作業メモ（使用糸・針の号数など）
+  final ProjectMarkers markers; // 繰り返し編みの目印
 
   CrochetProject({
     required this.id,
@@ -28,7 +31,17 @@ class CrochetProject {
     this.backgroundColor = '0xFFFFFFFF',
     this.iconImagePath,
     this.customStitches = const [], // デフォルトは空
+    this.memo = '',
+    this.markers = ProjectMarkers.none,
   });
+
+  /// 最後に編んだ編み目（段の開始マーカーは除く。なければnull）
+  dynamic get lastStitch {
+    for (final entry in stitchHistory.reversed) {
+      if (entry['position'] != 0) return entry['stitch'];
+    }
+    return null;
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -55,6 +68,8 @@ class CrochetProject {
       'iconColor': iconColor,
       'backgroundColor': backgroundColor,
       'iconImagePath': iconImagePath,
+      'memo': memo,
+      'markers': markers.toJson(),
       'customStitches': customStitches
           .map((stitch) {
             try {
@@ -156,6 +171,9 @@ class CrochetProject {
       iconColor: json['iconColor'] ?? '0xFF000000',
       backgroundColor: json['backgroundColor'] ?? '0xFFFFFFFF',
       iconImagePath: json['iconImagePath'],
+      // 旧バージョンのデータにはmemo/markersがないため、なければ空として扱う
+      memo: json['memo'] as String? ?? '',
+      markers: ProjectMarkers.fromJson(json['markers']),
       customStitches: (json['customStitches'] as List? ?? []).map((stitchJson) {
         final stitchData = Map<String, dynamic>.from(stitchJson);
         if (stitchData['type'] == 'enum') {
@@ -192,6 +210,8 @@ class CrochetProject {
     String? iconImagePath,
     bool clearIconImagePath = false,
     List<dynamic>? customStitches,
+    String? memo,
+    ProjectMarkers? markers,
   }) {
     return CrochetProject(
       id: id ?? this.id,
@@ -206,6 +226,8 @@ class CrochetProject {
       backgroundColor: backgroundColor ?? this.backgroundColor,
       iconImagePath: clearIconImagePath ? null : (iconImagePath ?? this.iconImagePath),
       customStitches: customStitches ?? this.customStitches,
+      memo: memo ?? this.memo,
+      markers: markers ?? this.markers,
     );
   }
 }

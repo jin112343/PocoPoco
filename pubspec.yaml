@@ -3,7 +3,7 @@ description: シンプルなかぎ針編みカウンターアプリ
 
 publish_to: 'none'
 
-version: 2.0.4+20
+version: 2.0.4+24
 
 environment:
   sdk: '>=3.2.3 <4.0.0'
@@ -19,6 +19,8 @@ dependencies:
   in_app_review: ^2.0.8
   url_launcher: ^6.2.5
   in_app_purchase: ^3.3.0
+  # StoreKit 2 で購入のキャンセル・承認待ちが通知されない不具合の修正（0.4.8+1）を含む版
+  in_app_purchase_storekit: ^0.4.13
   provider: ^6.1.2
   easy_localization: ^3.0.3
   app_tracking_transparency: ^2.0.4
@@ -37,6 +39,8 @@ dependencies:
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
