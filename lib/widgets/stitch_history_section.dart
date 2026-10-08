@@ -1,4 +1,6 @@
+import 'auto_scroll_text.dart';
 import 'package:flutter/material.dart';
+import '../l10n/stitch_names.dart';
 import '../models/crochet_stitch.dart';
 import '../models/project_markers.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -30,6 +32,11 @@ class StitchHistorySection extends StatefulWidget {
 class _StitchHistorySectionState extends State<StitchHistorySection> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _rowKeys = {};
+
+  // 編み目の列の標準の高さ（記号＋番号）
+  static const double _stripHeight = 80;
+  // 履歴の欄が低い小さな画面では、記号の列を縮めて1列ぶんが切れずに見えるようにする
+  double _stripScale = 1;
   final Map<int, ScrollController> _horizontalScrollControllers = {};
   int _lastMaxRow = 0;
   int _lastHistoryLength = 0;
@@ -117,14 +124,12 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
   // 削除された段のキーとコントローラーをクリーンアップ
   void _cleanupRemovedRows() {
     // 現在存在する段番号のセットを作成
-    final currentRows = widget.stitchHistory
-        .map((e) => e['row'] as int)
-        .toSet();
+    final currentRows =
+        widget.stitchHistory.map((e) => e['row'] as int).toSet();
 
     // _rowKeysから削除された段のキーを削除
-    final keysToRemove = _rowKeys.keys
-        .where((row) => !currentRows.contains(row))
-        .toList();
+    final keysToRemove =
+        _rowKeys.keys.where((row) => !currentRows.contains(row)).toList();
     for (final row in keysToRemove) {
       _rowKeys.remove(row);
     }
@@ -232,17 +237,15 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     }
   }
 
-
-
   // ボタンの位置に基づいた固定色を取得（stitch_pattern_grid.dartと同じロジック）
   Color _getStitchColorByIndex(int index) {
     final colors = [
-      Colors.blue,    // 0: 青
-      Colors.grey,    // 1: グレー
-      Colors.green,   // 2: 緑
-      Colors.orange,  // 3: オレンジ
-      Colors.purple,  // 4: 紫
-      Colors.red,     // 5: 赤
+      Colors.blue, // 0: 青
+      Colors.grey, // 1: グレー
+      Colors.green, // 2: 緑
+      Colors.orange, // 3: オレンジ
+      Colors.purple, // 4: 紫
+      Colors.red, // 5: 赤
     ];
     return colors[index % colors.length];
   }
@@ -274,8 +277,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       if (stitch is StitchDef) {
         return stitch.getName(context);
       } else if (stitch is Map<String, String>) {
-        final locale = context.locale.languageCode;
-        return locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+        return localizedStitchName(context,
+            nameJa: stitch['nameJa']!, nameEn: stitch['nameEn']!);
       } else {
         return 'Unknown';
       }
@@ -319,29 +322,26 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   child: Row(
                     children: [
                       Flexible(
-                        child: Text(
+                        child: AutoScrollText(
                           tr('stitch_history'),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             color: isDarkMode ? Colors.white : Colors.black87,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Flexible(
-                        child: Text(
+                        child: AutoScrollText(
                           tr('total_stitches',
                               namedArgs: {'count': '${_totalStitchCount()}'}),
                           style: TextStyle(
                             fontSize: 14,
-                            color:
-                                isDarkMode ? Colors.grey[400] : Colors.grey[600],
+                            color: isDarkMode
+                                ? Colors.grey[400]
+                                : Colors.grey[600],
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
@@ -365,35 +365,46 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.timeline,
-                          size: 56,
-                          color: isDarkMode ? Colors.grey[600] : const Color(0xFFE0E0E0),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          tr('history_empty_message'),
-                          style: TextStyle(
-                            color: isDarkMode ? Colors.grey[400] : Colors.grey,
-                            fontSize: 18,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.timeline,
+                              size: 56,
+                              color: isDarkMode
+                                  ? Colors.grey[600]
+                                  : const Color(0xFFE0E0E0),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              tr('history_empty_message'),
+                              style: TextStyle(
+                                color:
+                                    isDarkMode ? Colors.grey[400] : Colors.grey,
+                                fontSize: 18,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
                         ),
                       ),
                     ),
                   )
                 : Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: SingleChildScrollView(
-                      controller: _scrollController,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: _buildHistoryItems(),
-                      ),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        _stripScale = constraints.hasBoundedHeight
+                            ? (constraints.maxHeight / _stripHeight)
+                                .clamp(0.6, 1.0)
+                            : 1.0;
+                        return SingleChildScrollView(
+                          controller: _scrollController,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: _buildHistoryItems(),
+                          ),
+                        );
+                      },
                     ),
                   ),
           ),
@@ -432,7 +443,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
       // 再生成され、横スクロール位置が左端に戻ってしまう）
       items.add(
         Dismissible(
-          key: ValueKey('row_${row}_${rowStitches.first['timestamp']?.millisecondsSinceEpoch ?? row}'),
+          key: ValueKey(
+              'row_${row}_${rowStitches.first['timestamp']?.millisecondsSinceEpoch ?? row}'),
           direction: DismissDirection.endToStart,
           background: Container(
             margin: const EdgeInsets.only(bottom: 18),
@@ -453,7 +465,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
               context: context,
               builder: (context) => AlertDialog(
                 title: Text(tr('delete_row_title')),
-                content: Text(tr('delete_row_message', namedArgs: {'row': '$row'})),
+                content:
+                    Text(tr('delete_row_message', namedArgs: {'row': '$row'})),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(false),
@@ -461,8 +474,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   ),
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(true),
-                    child:
-                        Text(tr('delete'), style: const TextStyle(color: Colors.red)),
+                    child: Text(tr('delete'),
+                        style: const TextStyle(color: Colors.red)),
                   ),
                 ],
               ),
@@ -476,7 +489,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           },
           child: Container(
             key: _rowKeys[row],
-            margin: const EdgeInsets.only(bottom: 18),
+            // 縮めている時は、最新の段の下に余白を残さず記号の列を見せる
+            margin: EdgeInsets.only(bottom: _stripScale < 1 ? 4 : 18),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -484,11 +498,11 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   onTap: () => scrollToRow(row),
                   child: _buildRowLabel(row, isDarkMode),
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: _stripScale < 1 ? 6 : 12),
                 // この段の編み目を横スクロール可能に表示
                 if (rowStitches.any((stitch) => stitch['position'] != 0))
                   SizedBox(
-                    height: 80, // 固定高さで横スクロール
+                    height: _stripHeight * _stripScale, // 固定高さで横スクロール
                     child: RepaintBoundary(
                       child: SingleChildScrollView(
                         controller: _getHorizontalScrollController(row),
@@ -496,81 +510,94 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                         clipBehavior: Clip.hardEdge,
                         physics: const ClampingScrollPhysics(),
                         child: Row(
-                        children: rowStitches
-                            .where((stitch) =>
-                                stitch['position'] != 0) // 段開始フラグの編み目を除外
-                            .map((stitchData) {
-                          final dynamic stitchObj = _findStitchInCurrentList(
-                              stitchData['stitch'], widget.currentStitches);
-                          final position = stitchData['position'] as int;
-                          final stitchIndex = _getStitchIndexInCurrentList(stitchObj);
-                          final stitchColor = _getStitchColorByIndex(stitchIndex);
+                          children: rowStitches
+                              .where((stitch) =>
+                                  stitch['position'] != 0) // 段開始フラグの編み目を除外
+                              .map((stitchData) {
+                            final dynamic stitchObj = _findStitchInCurrentList(
+                                stitchData['stitch'], widget.currentStitches);
+                            final position = stitchData['position'] as int;
+                            final stitchIndex =
+                                _getStitchIndexInCurrentList(stitchObj);
+                            final stitchColor =
+                                _getStitchColorByIndex(stitchIndex);
 
-                                                  return Padding(
-                          key: ValueKey('stitch_${row}_${position}_${stitchData['timestamp']?.millisecondsSinceEpoch ?? '${row}_$position'}'),
-                            padding: const EdgeInsets.only(right: 12),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: stitchObj is StitchDef &&
-                                          stitchObj.isOval
-                                      ? 56
-                                      : 48,
-                                  height: 48,
-                                  decoration: BoxDecoration(
-                                    color: isDarkMode ? const Color(0xFF3D3D3D) : Colors.white,
-                                    borderRadius: stitchObj is StitchDef &&
-                                            stitchObj.isOval
-                                        ? BorderRadius.circular(24)
-                                        : BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: stitchColor,
-                                      width: 3,
+                            return Padding(
+                              key: ValueKey(
+                                  'stitch_${row}_${position}_${stitchData['timestamp']?.millisecondsSinceEpoch ?? '${row}_$position'}'),
+                              padding: const EdgeInsets.only(right: 12),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: (stitchObj is StitchDef &&
+                                                stitchObj.isOval
+                                            ? 56
+                                            : 48) *
+                                        _stripScale,
+                                    height: 48 * _stripScale,
+                                    decoration: BoxDecoration(
+                                      color: isDarkMode
+                                          ? const Color(0xFF3D3D3D)
+                                          : Colors.white,
+                                      borderRadius: stitchObj is StitchDef &&
+                                              stitchObj.isOval
+                                          ? BorderRadius.circular(24)
+                                          : BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: stitchColor,
+                                        width: 3,
+                                      ),
+                                    ),
+                                    child: Center(
+                                      child: stitchObj is StitchDef &&
+                                              stitchObj.imagePath != null
+                                          ? Container(
+                                              width: 36 * _stripScale,
+                                              height: 36 * _stripScale,
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              padding: const EdgeInsets.all(2),
+                                              child: Image.asset(
+                                                stitchObj.imagePath!,
+                                                width: 32 * _stripScale,
+                                                height: 32 * _stripScale,
+                                                fit: BoxFit.contain,
+                                              ),
+                                            )
+                                          : Text(
+                                              _getStitchName(stitchObj)
+                                                  .substring(0, 1),
+                                              style: TextStyle(
+                                                fontSize: 20 * _stripScale,
+                                                fontWeight: FontWeight.bold,
+                                                color: stitchColor,
+                                              ),
+                                            ),
                                     ),
                                   ),
-                                  child: Center(
-                                    child: stitchObj is StitchDef &&
-                                            stitchObj.imagePath != null
-                                        ? Container(
-                                            width: 36,
-                                            height: 36,
-                                            decoration: BoxDecoration(
-                                              color: Colors.white,
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            padding: const EdgeInsets.all(2),
-                                            child: Image.asset(
-                                              stitchObj.imagePath!,
-                                              width: 32,
-                                              height: 32,
-                                              fit: BoxFit.contain,
-                                            ),
-                                          )
-                                        : Text(
-                                            _getStitchName(stitchObj)
-                                                .substring(0, 1),
-                                            style: TextStyle(
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.bold,
-                                              color: stitchColor,
-                                            ),
-                                          ),
+                                  SizedBox(height: _stripScale < 1 ? 2 : 4),
+                                  Text(
+                                    '$position',
+                                    // 縮めている時は、番号も列の高さに収まる大きさにする
+                                    textScaler: _stripScale < 1
+                                        ? TextScaler.noScaling
+                                        : null,
+                                    style: TextStyle(
+                                      fontSize: _stripScale < 1 ? 11 : 14,
+                                      color: isDarkMode
+                                          ? Colors.grey[400]
+                                          : Colors.grey,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '$position',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: isDarkMode ? Colors.grey[400] : Colors.grey,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
+                                ],
+                              ),
+                            );
+                          }).toList(),
                         ),
                       ),
                     ),
@@ -580,7 +607,9 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: isDarkMode ? Colors.grey.withValues(alpha: 0.2) : Colors.grey.withValues(alpha: 0.1),
+                      color: isDarkMode
+                          ? Colors.grey.withValues(alpha: 0.2)
+                          : Colors.grey.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                           color: Colors.grey.withValues(alpha: 0.3), width: 1),
@@ -624,10 +653,12 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
     final Color background;
     final Color foreground;
     if (isCurrent) {
-      background = isDarkMode ? const Color(0xFFEC407A) : const Color(0xFFAD1457);
+      background =
+          isDarkMode ? const Color(0xFFEC407A) : const Color(0xFFAD1457);
       foreground = Colors.white;
     } else {
-      background = isDarkMode ? const Color(0xFF6A1B45) : const Color(0xFFF8BBD9);
+      background =
+          isDarkMode ? const Color(0xFF6A1B45) : const Color(0xFFF8BBD9);
       foreground = isDarkMode ? Colors.white : const Color(0xFFAD1457);
     }
 
@@ -655,7 +686,8 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
             Icons.flag,
             key: ValueKey('row_check_flag_$row'),
             size: 20,
-            color: isDarkMode ? const Color(0xFFFFD54F) : const Color(0xFFF57F17),
+            color:
+                isDarkMode ? const Color(0xFFFFD54F) : const Color(0xFFF57F17),
             semanticLabel: tr('marker_check_row_semantics'),
           ),
         ],
@@ -668,7 +700,7 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
           ),
           const SizedBox(width: 2),
           Flexible(
-            child: Text(
+            child: AutoScrollText(
               tr('marker_repeat_row_badge',
                   namedArgs: {'current': '$repeatNumber'}),
               style: TextStyle(
@@ -676,8 +708,6 @@ class _StitchHistorySectionState extends State<StitchHistorySection> {
                 fontWeight: FontWeight.w600,
                 color: isDarkMode ? Colors.grey[300] : Colors.grey[700],
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],

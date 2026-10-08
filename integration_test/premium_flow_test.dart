@@ -238,8 +238,10 @@ void main() {
       await _tap(tester, find.byIcon(Icons.add));
       await _waitFor(tester, find.text('プレミアム編み目を選択'));
       await _pumpFor(tester, const Duration(milliseconds: 600));
-      final premiumList = find.descendant(
-          of: find.byType(GridView).last, matching: find.byType(Scrollable));
+      final premiumList = find
+          .descendant(
+              of: _key('add_stitch_list'), matching: find.byType(Scrollable))
+          .first;
       for (final name in _newStitches.keys) {
         final target = find.text(name);
         await tester.scrollUntilVisible(target, 120, scrollable: premiumList);

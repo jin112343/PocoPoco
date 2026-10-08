@@ -10,6 +10,7 @@ import '../models/crochet_project.dart';
 import '../models/stitch_info.dart';
 import '../services/storage_service.dart';
 import '../widgets/cat_loading.dart';
+import '../widgets/auto_scroll_text.dart';
 import 'crochet_counter_screen.dart';
 import 'settings_screen.dart';
 import 'upgrade_screen.dart';
@@ -341,7 +342,9 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(tr('edit_project')),
-        content: Column(
+        // 小さい画面や大きい文字では縦に収まらないことがあるので、スクロールできるようにする
+        content: SingleChildScrollView(
+          child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
@@ -387,6 +390,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
             ),
           ],
+          ),
         ),
         actions: [
           TextButton(
@@ -589,14 +593,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         }),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: Text(
+                          // 長い作品名は2行まで折り返し、それでも収まらなければ横に流す
+                          child: AutoScrollText(
                             project.title,
+                            maxLines: 2,
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
                               color: isDarkMode ? Colors.white : Colors.black87,
                             ),
-                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -1137,7 +1142,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         Scaffold(
       appBar: AppBar(
-        title: Text(
+        title: AutoScrollText(
           tr('app_title'),
           style: const TextStyle(
             fontWeight: FontWeight.bold,
@@ -1302,8 +1307,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                               );
                             }),
-                            title: Text(
+                            title: AutoScrollText(
                               project.title,
+                              maxLines: 2,
                               style: TextStyle(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -1354,7 +1360,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   _buildMemoPreview(
                                     project.memo,
                                     color: isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600,
-                                    maxLines: 1,
+                                    maxLines: 2,
                                   ),
                                 ],
                               ],
@@ -1405,8 +1411,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// メモの冒頭を1〜数行で表示する
+  /// メモの抜粋。全文はメモの画面で読めるので、ここでは長い分を「…」で省略する
   Widget _buildMemoPreview(String memo, {required Color color, required int maxLines}) {
     return Row(
+      key: const ValueKey('memo_preview'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -1463,10 +1471,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
                 const SizedBox(height: 8),
-                Text(
+                AutoScrollText(
                   project.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 20,
@@ -1487,11 +1494,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 if (lastStitch != null) ...[
                   const SizedBox(height: 2),
-                  Text(
+                  AutoScrollText(
                     tr('resume_last_stitch',
                         namedArgs: {'stitch': lastStitch.displayName(context)}),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
                     style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                 ],

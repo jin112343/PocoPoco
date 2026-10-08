@@ -3,6 +3,7 @@ import 'package:easy_localization/easy_localization.dart';
 
 import '../controllers/project_controller.dart';
 import '../models/project_markers.dart';
+import 'auto_scroll_text.dart';
 
 /// カウンター画面上部の大きな「いま何段目・何目」表示。
 ///
@@ -143,9 +144,8 @@ class CounterDisplay extends StatelessWidget {
             const SizedBox(height: _gap),
             SizedBox(
               height: _chipHeight(compact),
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
+              child: _FittedChipRow(
+                chips: [
                   _BandChip(
                     key: const ValueKey('notes_chip'),
                     icon: memo.trim().isEmpty
@@ -174,7 +174,7 @@ class CounterDisplay extends StatelessWidget {
     return tr('notes_and_stitches');
   }
 
-  List<Widget> _buildMarkerChips(bool isDarkMode) {
+  List<_BandChip> _buildMarkerChips(bool isDarkMode) {
     if (markers.isEmpty) {
       return [
         _BandChip(
@@ -187,7 +187,7 @@ class CounterDisplay extends StatelessWidget {
       ];
     }
 
-    final chips = <Widget>[];
+    final chips = <_BandChip>[];
     if (markers.hasCheck) {
       final isCheckRow = markers.isCheckRow(currentRow);
       chips.add(_BandChip(
@@ -425,39 +425,98 @@ class _BandChip extends StatelessWidget {
         foreground = isDarkMode ? Colors.white : const Color(0xFF1B5E20);
     }
 
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: Material(
-        color: background,
+    return Material(
+      color: background,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: foreground),
-                const SizedBox(width: 4),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: foreground,
-                    ),
-                  ),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: _horizontalPadding),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: _iconSize, color: foreground),
+              const SizedBox(width: _iconGap),
+              // 幅を詰められた時は、文字が自動で横に流れる
+              Flexible(
+                child: AutoScrollText(
+                  label,
+                  style: _labelStyle.copyWith(color: foreground),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  static const double _horizontalPadding = 10;
+  static const double _iconSize = 16;
+  static const double _iconGap = 4;
+  static const double _maxLabelWidth = 220;
+  static const TextStyle _labelStyle =
+      TextStyle(fontSize: 13, fontWeight: FontWeight.w600);
+
+  /// 文字を省略せずに表示した時の幅（長すぎるメモは上限まで）
+  double naturalWidth(BuildContext context) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: label,
+        style: DefaultTextStyle.of(context).style.merge(_labelStyle),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final labelWidth = painter.width.clamp(0.0, _maxLabelWidth);
+    painter.dispose();
+    // 端数で折り返さないよう、少し余裕を持たせる
+    return _horizontalPadding * 2 + _iconSize + _iconGap + labelWidth + 1;
+  }
+}
+
+/// チップを横一列に、幅に収まるように並べる。
+///
+/// 全部が収まらない時は、長いチップから幅を詰める（短いチップはそのまま）。
+/// 詰めたチップの文字は自動で横に流れるので、端で見切れたまま読めなくなることがない。
+class _FittedChipRow extends StatelessWidget {
+  const _FittedChipRow({required this.chips});
+
+  final List<_BandChip> chips;
+
+  static const double _gap = 8;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final natural = [for (final chip in chips) chip.naturalWidth(context)];
+        final available = constraints.maxWidth - _gap * (chips.length - 1);
+        final widths = List<double>.of(natural);
+        if (natural.fold<double>(0, (sum, width) => sum + width) > available) {
+          // 短いものから順に必要な幅を確保し、残りを長いもので分け合う
+          final order = List<int>.generate(chips.length, (i) => i)
+            ..sort((a, b) => natural[a].compareTo(natural[b]));
+          var remaining = available;
+          for (var i = 0; i < order.length; i++) {
+            final share = remaining / (order.length - i);
+            final width = natural[order[i]] < share ? natural[order[i]] : share;
+            widths[order[i]] = width;
+            remaining -= width;
+          }
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < chips.length; i++) ...[
+              if (i > 0) const SizedBox(width: _gap),
+              SizedBox(width: widths[i], child: chips[i]),
+            ],
+          ],
+        );
+      },
     );
   }
 }

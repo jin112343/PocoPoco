@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:easy_localization/easy_localization.dart';
+import '../l10n/stitch_names.dart';
 
 import 'crochet_stitch.dart';
 
@@ -57,12 +57,8 @@ class StitchInfo {
     return null;
   }
 
-  /// 表示言語に合わせた名前（日本語以外は英語名）
+  /// 表示言語に合わせた名前（訳の無い編み目は英語名）
   String displayName(BuildContext context) {
-    try {
-      return context.locale.languageCode == 'ja' ? nameJa : nameEn;
-    } catch (_) {
-      return nameJa;
-    }
+    return localizedStitchName(context, nameJa: nameJa, nameEn: nameEn);
   }
 }

@@ -26,6 +26,7 @@ import 'package:poco/widgets/paywall_widgets.dart';
 // ignore: depend_on_referenced_packages
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
+import 'script_fonts.dart';
 import 'test_helpers.dart';
 
 class _FakeLauncher extends UrlLauncherPlatform {
@@ -106,6 +107,7 @@ void main() {
 
   setUpAll(() async {
     await setUpTestEnvironment();
+    await loadScriptFonts();
     if (const bool.fromEnvironment('PAYWALL_PREVIEWS')) {
       final textFont = FontLoader('NotoSansJP')
         ..addFont(rootBundle.load('assets/fonts/NotoSansJP-Regular.ttf'))
@@ -516,31 +518,47 @@ void main() {
     await closeScreen(tester);
   });
 
-  for (final language in ['ja', 'en', 'ko', 'es', 'de']) {
-    for (final dark in [false, true]) {
+  // 訳のファイルがあるすべての言語で確かめる（ダーク表示は配色だけの違いなので主な言語で）
+  final languages = [
+    for (final file in Directory('assets/lang').listSync().whereType<File>())
+      if (file.path.endsWith('.json'))
+        file.uri.pathSegments.last.replaceAll('.json', ''),
+  ]..sort();
+  for (final language in languages) {
+    final locale = switch (language) {
+      'zh-Hant' => const Locale('zh', 'TW'),
+      'pt-PT' => const Locale('pt', 'PT'),
+      _ => Locale(language),
+    };
+    final mainLanguage = const ['ja', 'en', 'ko', 'es', 'de'].contains(language);
+    for (final dark in [false, if (mainLanguage) true]) {
       testWidgets('$language: 幅320・文字サイズ1.5・ダーク=$dark でも表示が崩れない',
           (tester) async {
         addPlans();
         setScreen(tester, size: const Size(320, 640), textScale: 1.5);
-        await pumpWithApp(
-            tester,
-            Theme(
-                data: ThemeData(
-                    brightness: dark ? Brightness.dark : Brightness.light),
-                child: const UpgradeScreen()),
-            locale: Locale(language));
+        await pumpWithApp(tester, const UpgradeScreen(),
+            locale: locale,
+            // 各国の文字を実際の幅で描く
+            theme: ThemeData(
+              brightness: dark ? Brightness.dark : Brightness.light,
+              fontFamily: scriptTextFamily,
+              fontFamilyFallback: scriptFontFallbackFor(locale),
+            ));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        expect(unreadableTexts(tester), isEmpty);
         await tester.ensureVisible(monthlyCard);
         await tester.pumpAndSettle();
         await tester.tap(monthlyCard);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        expect(unreadableTexts(tester), isEmpty);
         expect(
             tester.widget<FilledButton>(purchaseButton).onPressed, isNotNull);
         await tester.ensureVisible(restoreButton);
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        expect(unreadableTexts(tester), isEmpty);
         await closeScreen(tester);
       });
     }

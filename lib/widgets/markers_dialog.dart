@@ -178,22 +178,43 @@ class _NumberField extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: TextField(
-        controller: controller,
-        keyboardType: TextInputType.number,
-        inputFormatters: [
-          FilteringTextInputFormatter.digitsOnly,
-          LengthLimitingTextInputFormatter(3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 見出しは枠の上に置いて折り返す（枠の中に入れると、言語によっては
+          // 長くて「…」で切れてしまう）。読み上げでは入力欄の名前として伝わる
+          ExcludeSemantics(
+            child: Padding(
+              padding: const EdgeInsets.only(left: 2, bottom: 6),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant),
+              ),
+            ),
+          ),
+          Semantics(
+            label: label,
+            child: TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(3),
+              ],
+              decoration: InputDecoration(
+                border: const OutlineInputBorder(),
+                isDense: true,
+                errorText: showError
+                    ? tr('marker_value_error',
+                        namedArgs: {'max': '${ProjectMarkers.maxValue}'})
+                    : null,
+                errorMaxLines: 3,
+              ),
+            ),
+          ),
         ],
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          isDense: true,
-          errorText: showError
-              ? tr('marker_value_error',
-                  namedArgs: {'max': '${ProjectMarkers.maxValue}'})
-              : null,
-        ),
       ),
     );
   }

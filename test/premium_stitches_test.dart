@@ -150,14 +150,16 @@ void main() {
       await tester.tap(find.byIcon(Icons.add));
       await tester.pumpAndSettle();
 
-      // プレミアム編み目の一覧（2つ目のグリッド）をスクロールして探す
-      final premiumGrid = find.byType(GridView).last;
+      // 基本・プレミアムをまとめた一覧をスクロールして探す
       final target = find.text('輪の作り目');
       await tester.scrollUntilVisible(
         target,
         200,
-        scrollable: find.descendant(
-            of: premiumGrid, matching: find.byType(Scrollable)),
+        scrollable: find
+            .descendant(
+                of: find.byKey(const ValueKey('add_stitch_list')),
+                matching: find.byType(Scrollable))
+            .first,
       );
       await tester.tap(target);
       await tester.pumpAndSettle();

@@ -14,6 +14,7 @@ import 'services/ads_initializer.dart';
 import 'services/user_prefs_service.dart';
 import 'widgets/cat_loading.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'l10n/app_locales.dart';
 import 'package:app_tracking_transparency/app_tracking_transparency.dart';
 
 void main() async {
@@ -73,17 +74,16 @@ void main() async {
 
   runApp(
     EasyLocalization(
-      supportedLocales: const [
-        Locale('ja'),
-        Locale('en'),
-        Locale('ko'),
-        Locale('es'),
-        Locale('de'),
-      ],
+      supportedLocales: appSupportedLocales,
       path: 'assets/lang',
-      // startLocaleを指定しない（指定すると初回起動が常に日本語になる）
-      // デバイスのロケールを優先し、未対応言語は日本語にフォールバック
-      fallbackLocale: const Locale('ja'),
+      assetLoader: const AppLangAssetLoader(),
+      // startLocaleを指定しない（指定すると初回起動が常にその言語になる）。
+      // 端末の言語設定に合わせて表示し、対応していない言語と訳のない文言は英語にする
+      fallbackLocale: appFallbackLocale,
+      useFallbackTranslations: true,
+      // アプリ内に言語の切り替えはないので、前回の言語を覚えずに毎回端末の設定に従う
+      // （以前の版で「未対応 → 日本語」と記憶された端末も、対応した言語に切り替わる）
+      saveLocale: false,
       child: MultiProvider(
         providers: [
           ChangeNotifierProvider(create: (_) => SubscriptionProvider()),

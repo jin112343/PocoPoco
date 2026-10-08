@@ -18,6 +18,7 @@ import '../services/subscription_provider.dart';
 import '../services/user_prefs_service.dart';
 import '../widgets/control_buttons.dart';
 import '../widgets/counter_display.dart';
+import '../widgets/auto_scroll_text.dart';
 import '../widgets/markers_dialog.dart';
 import '../widgets/project_notes_sheet.dart';
 import '../widgets/stitch_history_section.dart';
@@ -758,7 +759,8 @@ class _CrochetCounterScreenState extends State<CrochetCounterScreen>
     return AppBar(
       title: GestureDetector(
         onTap: _editProjectTitle,
-        child: Text(
+        // 長い作品名は「…」で切らず、自動で横に流して全部読めるようにする
+        child: AutoScrollText(
           title.isEmpty ? tr('app_title') : title,
           style: const TextStyle(
             fontWeight: FontWeight.bold,

@@ -1,11 +1,13 @@
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:poco/l10n/app_locales.dart';
 import 'package:poco/models/crochet_project.dart';
 import 'package:poco/models/crochet_stitch.dart';
 import 'package:poco/services/subscription_provider.dart';
@@ -60,6 +62,7 @@ Future<SubscriptionProvider> pumpWithApp(
   Widget home, {
   Locale locale = const Locale('ja'),
   SubscriptionProvider? subscription,
+  ThemeData? theme,
 }) async {
   // 前のテストで読み込んだアセット（翻訳・画像）の控えを捨てる。
   // 残っていると、終了済みのテストに紐づいた読み込み待ちが終わらなくなる
@@ -70,15 +73,12 @@ Future<SubscriptionProvider> pumpWithApp(
     EasyLocalization(
       // テストごとに作り直す（前のテストの言語設定を引き継がない）
       key: UniqueKey(),
-      supportedLocales: const [
-        Locale('ja'),
-        Locale('en'),
-        Locale('ko'),
-        Locale('es'),
-        Locale('de'),
-      ],
+      // アプリ本体と同じ言語の一覧・読み込み方を使う
+      supportedLocales: appSupportedLocales,
       path: 'assets/lang',
-      fallbackLocale: const Locale('ja'),
+      assetLoader: const AppLangAssetLoader(),
+      fallbackLocale: appFallbackLocale,
+      useFallbackTranslations: true,
       startLocale: locale,
       saveLocale: false,
       child: MultiProvider(
@@ -89,6 +89,7 @@ Future<SubscriptionProvider> pumpWithApp(
         child: Builder(
           builder: (context) => MaterialApp(
             home: home,
+            theme: theme,
             localizationsDelegates: context.localizationDelegates,
             supportedLocales: context.supportedLocales,
             locale: context.locale,
@@ -159,4 +160,39 @@ CrochetProject buildProject({
     memo: memo,
     customStitches: customStitches,
   );
+}
+
+/// 切れている・はみ出している文字を集める
+List<String> unreadableTexts(WidgetTester tester) {
+  // メモの抜粋は、長い分を意図して省略している（全文はメモの画面で読める）
+  final excerpts = {
+    // 画面外に用意されている行も含めて探す
+    for (final element in find
+        .descendant(
+            of: find.byKey(const ValueKey('memo_preview'), skipOffstage: false),
+            matching: find.byType(RichText, skipOffstage: false),
+            skipOffstage: false)
+        .evaluate())
+      element.renderObject,
+  };
+  final found = <String>{};
+  void visit(RenderObject object) {
+    if (object is RenderParagraph &&
+        object.hasSize &&
+        !excerpts.contains(object)) {
+      final text = object.text.toPlainText().replaceAll('\n', '⏎');
+      if (object.didExceedMaxLines) {
+        found.add('省略: $text');
+      } else if (object.textSize.width > object.size.width + 0.5 ||
+          object.textSize.height > object.size.height + 0.5) {
+        found.add('はみ出し: $text');
+      }
+    }
+    object.visitChildren(visit);
+  }
+
+  for (final view in tester.binding.renderViews) {
+    visit(view);
+  }
+  return found.toList()..sort();
 }

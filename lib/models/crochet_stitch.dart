@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:easy_localization/easy_localization.dart';
 
+import '../l10n/stitch_names.dart';
 import 'premium_stitches.dart';
 
 /// 編み目定義の共通インターフェース
@@ -45,13 +45,7 @@ enum CrochetStitch implements StitchDef {
   // BuildContextを使った名前取得（推奨）
   @override
   String getName(BuildContext context) {
-    try {
-      final locale = context.locale.languageCode;
-      return locale == 'ja' ? nameJa : nameEn;
-    } catch (e) {
-      // EasyLocalizationがまだ初期化されていない場合は日本語をデフォルトで返す
-      return nameJa;
-    }
+    return localizedStitchName(context, nameJa: nameJa, nameEn: nameEn);
   }
 
   // 後方互換性のため残す（デフォルトで日本語を返す）
@@ -124,8 +118,7 @@ class CustomStitch implements StitchDef {
 
   @override
   String getName(BuildContext context) {
-    final locale = context.locale.languageCode;
-    return locale == 'ja' ? nameJa : nameEn;
+    return localizedStitchName(context, nameJa: nameJa, nameEn: nameEn);
   }
 
   // 後方互換性のため残す（デフォルトで日本語を返す）
@@ -150,9 +143,8 @@ class CustomStitch implements StitchDef {
   factory CustomStitch.fromJson(Map<String, dynamic> json) {
     // imagePathが空文字列の場合はnullとして扱う
     final imagePathRaw = json['imagePath'] as String?;
-    var imagePath = (imagePathRaw == null || imagePathRaw.isEmpty)
-        ? null
-        : imagePathRaw;
+    var imagePath =
+        (imagePathRaw == null || imagePathRaw.isEmpty) ? null : imagePathRaw;
 
     final nameJa = json['nameJa'] as String? ?? json['name'] as String;
 

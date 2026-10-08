@@ -1,4 +1,7 @@
+import 'auto_scroll_text.dart';
 import 'package:flutter/material.dart';
+import '../l10n/script_metrics.dart';
+import '../l10n/stitch_names.dart';
 import 'package:flutter/foundation.dart';
 import '../models/crochet_stitch.dart';
 import '../screens/stitch_customization_screen.dart';
@@ -122,7 +125,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         shouldReload = true;
       } else {
         // 内容の比較（深い比較）
-        shouldReload = _hasStitchesChanged(widget.projectStitches!, oldWidget.projectStitches!);
+        shouldReload = _hasStitchesChanged(
+            widget.projectStitches!, oldWidget.projectStitches!);
       }
     }
 
@@ -198,7 +202,6 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   }
 
   Future<void> _loadStitches() async {
-
     try {
       // 編み目設定が変更された場合はキャッシュをクリア
       _stitchNameCache.clear();
@@ -235,7 +238,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   }
 
   // 編み目設定の内容が変更されたかチェック
-  bool _hasStitchesChanged(List<dynamic> newStitches, List<dynamic> oldStitches) {
+  bool _hasStitchesChanged(
+      List<dynamic> newStitches, List<dynamic> oldStitches) {
     if (newStitches.length != oldStitches.length) return true;
 
     for (int i = 0; i < newStitches.length; i++) {
@@ -264,12 +268,12 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   // ボタンの位置に基づいた固定色を取得
   Color _getStitchColorByIndex(int index) {
     final colors = [
-      Colors.blue,    // 0: 青
-      Colors.grey,    // 1: グレー
-      Colors.green,   // 2: 緑
-      Colors.orange,  // 3: オレンジ
-      Colors.purple,  // 4: 紫
-      Colors.red,     // 5: 赤
+      Colors.blue, // 0: 青
+      Colors.grey, // 1: グレー
+      Colors.green, // 2: 緑
+      Colors.orange, // 3: オレンジ
+      Colors.purple, // 4: 紫
+      Colors.red, // 5: 赤
     ];
     return colors[index % colors.length];
   }
@@ -297,8 +301,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         result = stitch.getName(context);
       } else if (stitch is Map<String, String>) {
         try {
-          final locale = context.locale.languageCode;
-          result = locale == 'ja' ? stitch['nameJa']! : stitch['nameEn']!;
+          result = localizedStitchName(context,
+              nameJa: stitch['nameJa']!, nameEn: stitch['nameEn']!);
         } catch (e) {
           result = stitch['nameJa'] ?? stitch['nameEn'] ?? 'Unknown';
         }
@@ -402,15 +406,13 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
             child: Row(
               children: [
                 Expanded(
-                  child: Text(
+                  child: AutoScrollText(
                     tr('select_stitch_hint'),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: isDarkMode ? Colors.white70 : Colors.black87,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 // 編み目カスタマイズボタン
@@ -469,8 +471,11 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
   Widget _buildStitchButton(dynamic stitch, int index) {
     final buttonColor = _getStitchColorByIndex(index);
     final stitchName = _getStitchName(stitch);
-    // 高さに余裕がある時は「画像の下に名前」の縦並びにして名前を読みやすくする
-    final vertical = !widget.isLandscape && widget.buttonHeight >= 76;
+    // 縦持ちでは「記号の下に名前」にして、名前にボタンの幅いっぱいを使う
+    // （記号の横に置くと幅が狭く、短い名前でも途中で折り返してしまう）。
+    // 高さに余裕があれば名前は2行、なければ1行（収まらない名前は横に流れる）
+    final vertical = !widget.isLandscape && widget.buttonHeight >= 56;
+    final nameLines = widget.buttonHeight >= 76 ? 2 : 1;
 
     // ラベルは中のTextから、押す操作はInkWellから読み上げに伝わる
     return Semantics(
@@ -496,7 +501,8 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
               child: vertical
-                  ? _buildVerticalContent(stitch, stitchName, buttonColor)
+                  ? _buildVerticalContent(stitch, stitchName, buttonColor,
+                      nameLines: nameLines)
                   : _buildHorizontalContent(stitch, stitchName, buttonColor),
             ),
           ),
@@ -505,11 +511,25 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
     );
   }
 
+  static const double _nameFontSize = 13;
+  // 欧文・日本語での行の高さ（背の高い文字の言語では scriptLineHeight で広げる）
+  static const double _nameBaseLineHeight = 1.15;
+  // 名前が少しだけ収まらない時に、ここまで文字を縮める（それでも無理なら横に流す）
+  static const double _nameMinScale = 0.8;
+
   /// 画像の下に名前を置くレイアウト。収まらない場合は全体を縮小する
   Widget _buildVerticalContent(
-      dynamic stitch, String stitchName, Color buttonColor) {
+      dynamic stitch, String stitchName, Color buttonColor,
+      {required int nameLines}) {
     return LayoutBuilder(
       builder: (context, constraints) {
+        final nameHeight =
+            MediaQuery.textScalerOf(context).scale(_nameFontSize) *
+                scriptLineHeight(context, _nameBaseLineHeight) *
+                nameLines;
+        // 高さが低いボタンでは、名前の行を確保した残りに記号を収める
+        final imageSize =
+            (constraints.maxHeight - nameHeight - 3).clamp(24.0, 38.0);
         return FittedBox(
           fit: BoxFit.scaleDown,
           child: SizedBox(
@@ -517,19 +537,27 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildStitchImage(stitch, stitchName, buttonColor, size: 38),
+                _buildStitchImage(stitch, stitchName, buttonColor,
+                    size: imageSize),
                 const SizedBox(height: 3),
-                Text(
-                  stitchName,
-                  style: TextStyle(
-                    fontSize: 13,
-                    height: 1.15,
-                    fontWeight: FontWeight.w700,
-                    color: buttonColor,
+                // 名前の欄はいつも同じ行数ぶん確保して、名前の長さが違うボタン同士でも
+                // 記号の位置が揃うようにする。収まらない名前は自動で横に流す
+                SizedBox(
+                  height: nameHeight,
+                  child: Center(
+                    child: AutoScrollText(
+                      stitchName,
+                      style: TextStyle(
+                        fontSize: _nameFontSize,
+                        height: scriptLineHeight(context, _nameBaseLineHeight),
+                        fontWeight: FontWeight.w700,
+                        color: buttonColor,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: nameLines,
+                      minScale: _nameMinScale,
+                    ),
                   ),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -548,20 +576,22 @@ class _StitchPatternGridState extends State<StitchPatternGrid> {
         _buildStitchImage(stitch, stitchName, buttonColor, size: 36),
         const SizedBox(width: 6),
         Flexible(
-          child: Text(
-            stitchName,
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.15,
-              fontWeight: FontWeight.w700,
-              color: buttonColor,
+          // 画像の横は幅が狭いので、名前が途中で切れないよう拡大を抑える。
+          // それでも収まらない名前は自動で横に流す
+          child: MediaQuery.withClampedTextScaling(
+            maxScaleFactor: _horizontalNameMaxScale,
+            child: AutoScrollText(
+              stitchName,
+              style: TextStyle(
+                fontSize: _nameFontSize,
+                height: scriptLineHeight(context, _nameBaseLineHeight),
+                fontWeight: FontWeight.w700,
+                color: buttonColor,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              minScale: _nameMinScale,
             ),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            // 画像の横は幅が狭いので、名前が途中で切れないよう拡大を抑える
-            textScaler: MediaQuery.textScalerOf(context)
-                .clamp(maxScaleFactor: _horizontalNameMaxScale),
           ),
         ),
       ],
