@@ -1,9 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // お問い合わせは誰でも作成可能、読み取り・更新・削除は不可
-    match /feedback/{document=**} {
-      allow create: if true;
+    // Anonymous feedback is create-only; reads require privileged server access.
+    match /feedback/{documentId} {
+      allow create: if request.resource.data.keys().hasOnly(['type', 'message', 'createdAt', 'platform'])
+        && request.resource.data.type in ['bug', 'feature_request', 'other']
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 40000
+        && request.resource.data.platform is string
+        && request.resource.data.platform.size() <= 64
+        && request.resource.data.createdAt == request.time;
       allow read, update, delete: if false;
     }
   }
